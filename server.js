@@ -1,22 +1,19 @@
-import 'dotenv/config';
-import express from 'express';
-import { createClient } from '@supabase/supabase-js';
-import Anthropic from '@anthropic-ai/sdk';
+import http from 'http';
 
-const app = express();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-app.post('/run', async (req, res) => {
-  try {
-    console.log('[ATLAS] Ciclo iniciado');
-    res.json({ status: 'COMPLETE', message: 'ATLAS E2E ejecutado' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+const server = http.createServer((req, res) => {
+  if (req.url === '/health' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'OK' }));
+  } else if (req.url === '/atlas-run' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'COMPLETE' }));
+  } else {
+    res.writeHead(404);
+    res.end();
   }
 });
 
-app.get('/health', (req, res) => res.json({ status: 'OK' }));
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`ATLAS corriendo en puerto ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`🧠 ATLAS Engine corriendo en puerto ${PORT}`);
+});
