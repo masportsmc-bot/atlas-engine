@@ -3,10 +3,14 @@ import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import http from 'http';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || 'https://yawzetkinbbhvaptipdu.supabase.co',
-  process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhd3pldGtpbmJiaHZhcHRpcGR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTMzNjgyNSwiZXhwIjoyMTA0OTEyODI1fQ.zwKx641VcsWuj3Ei138WjCSiYNStFjtUFpmMxN8Jn-I'
-);
+const REQUIRED_ENV = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
+const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name] || !process.env[name].trim());
+if (missingEnv.length > 0) {
+  console.error(`FATAL: missing required environment variable(s): ${missingEnv.join(', ')}. Refusing to start.`);
+  process.exit(1);
+}
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
