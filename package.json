@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "type": "module",
   "main": "server.js",
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js"
