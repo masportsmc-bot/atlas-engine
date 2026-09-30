@@ -1,14 +1,17 @@
 {
   "name": "atlas-engine",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "server.js",
+  "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "dotenv": "^16.0.0",
-    "@supabase/supabase-js": "^2.38.0",
-    "@anthropic-ai/sdk": "^0.20.0"
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@supabase/supabase-js": "^2.117.2",
+    "ajv": "^8.20.0",
+    "dotenv": "^16.0.0"
   }
 }
