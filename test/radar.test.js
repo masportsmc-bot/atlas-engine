@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateRadarOutput, quantityTokens } from '../radar/validate.js';
 import { buildRequest, buildManifest, TOOL_NAME } from '../radar/prompt.js';
-import { createRadarWorker } from '../radar/worker.js';
+import { completeNullableShape, createRadarWorker } from '../radar/worker.js';
 import { bundleA, outputA, outputB, bundleC, outputC } from './fixtures.js';
 
 const codes = (r) => r.violations.map((v) => v.code);
@@ -22,6 +22,13 @@ test('A: PROCEED with traceable quantities (14 locations, €3,000/month, 11 for
 test('B: NEEDS_MORE_INFO with info_request is valid', () => {
   const r = validateRadarOutput(outputB(), bundleA);
   assert.deepEqual(r.violations, []);
+});
+test('worker shape completion supplies nullable info_request without relaxing validation', () => {
+  const o = outputA();
+  delete o.info_request;
+  assert.equal(completeNullableShape(o).info_request, null);
+  const withExtra = { ...o, content_note: 'must remain invalid' };
+  assert.equal(validateRadarOutput(completeNullableShape(withExtra), bundleA).valid, false);
 });
 test('C: INTERNAL subject may route FACTORY alone (D1)', () => {
   const r = validateRadarOutput(outputC(), bundleC);

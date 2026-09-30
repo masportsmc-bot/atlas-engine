@@ -3,6 +3,16 @@
 import { buildRequest, buildManifest, TOOL_NAME } from './prompt.js';
 import { validateRadarOutput } from './validate.js';
 
+// The contract represents info_request as nullable, so an omitted value is
+// equivalent to the explicit null required by the persisted assessment shape.
+// Keep all other fields strict: unknown properties and unsupported content must
+// still fail validation rather than being silently repaired.
+export function completeNullableShape(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  if (Object.prototype.hasOwnProperty.call(input, 'info_request')) return input;
+  return { ...input, info_request: null };
+}
+
 export function createRadarWorker({ supabase, anthropic, model, pollIntervalMs = 30000, modelTimeoutMs = 600000, log = console }) {
   const status = {
     enabled: true, model, poll_interval_ms: pollIntervalMs, busy: false,
@@ -50,14 +60,15 @@ export function createRadarWorker({ supabase, anthropic, model, pollIntervalMs =
     if (!toolUse) return fail(runId, manifest, `NO_TOOL_OUTPUT: stop_reason=${response.stop_reason}`, { content: response.content });
     if (response.stop_reason === 'max_tokens') return fail(runId, manifest, 'TRUNCATED_OUTPUT: max_tokens reached', { output: toolUse.input });
 
-    const { valid, violations } = validateRadarOutput(toolUse.input, bundle);
+    const normalizedInput = completeNullableShape(toolUse.input);
+    const { valid, violations } = validateRadarOutput(normalizedInput, bundle);
     if (!valid) {
       const summary = violations.slice(0, 20).map((x) => `${x.code} ${x.path}: ${x.message}`).join(' | ');
-      return fail(runId, manifest, `VALIDATION_FAILED (${violations.length}): ${summary}`, { output: toolUse.input, violations });
+      return fail(runId, manifest, `VALIDATION_FAILED (${violations.length}): ${summary}`, { output: normalizedInput, violations });
     }
 
     try {
-      const res = await rpc('radar_complete_run', { p_run_id: runId, p_prompt: JSON.stringify(manifest), p_output: toolUse.input });
+      const res = await rpc('radar_complete_run', { p_run_id: runId, p_prompt: JSON.stringify(manifest), p_output: normalizedInput });
       status.runs_completed += 1;
       status.last_outcome = `COMPLETED ${runId} -> review_item ${res?.review_item_id}`;
       log.info(`[radar] run ${runId} completed; review item ${res?.review_item_id}`);
