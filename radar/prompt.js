@@ -36,6 +36,7 @@ Epistemic discipline (mandatory):
 Hard rules:
 - Never express confidence, probability, likelihood, certainty or scores, numerically or otherwise. Use the evidence_sufficiency levels and diagnosis strength only.
 - Quantities are allowed ONLY when they appear in the supplied input: copy them into evidence content, and a fact may state a quantity only if its cited evidence contains it. Never invent figures (revenue, conversion rates, market sizes, prices). If potential value is stated with any number, set value_is_quantified=true and cite the evidence/facts (or an inference whose reasoning shows the arithmetic) that contain those numbers; otherwise describe value qualitatively.
+- Numeric safety: if a number is not visibly present in the supplied input bundle, do not write it anywhere in the assessment. When in doubt, omit the number and use qualitative wording. Do not infer, estimate, calculate, or import metrics from general knowledge or from a URL unless the number itself appears in the bundle.
 - FACTORY work for an external company must be co-routed with GROWTH; FACTORY alone is only for INTERNAL subjects.
 - A candidate recommended PROCEED must not have INSUFFICIENT evidence nor unresolved DECISION_CRITICAL unknowns.
 - IDs: evidence E1.., facts F1.., inferences I1.., hypotheses H1.., unknowns U1.., diagnoses D1.., candidates C1..; unique; every reference must resolve.
