@@ -13,15 +13,39 @@ const FORBIDDEN_KEY = /(confidence|probability|likelihood|certainty|score)/i;
 // ---------- numeric traceability helpers (Correction 1) ----------
 // A "quantity token" is a digit group, normalised by removing thousands/decimal separators between digits:
 // "€3,000/month" -> "3000", "3.000" -> "3000", "14" -> "14", "2,5" -> "25".
-export function quantityTokens(text) {
-  if (typeof text !== 'string') return [];
-  const m = text.match(/\d+(?:[.,]\d+)*/g) || [];
+//
+// Identifiers are not quantities. Before extracting tokens, identifiers are removed from the text:
+//   - canonical UUIDs (e.g. a related case_id repeated in evidence text), always;
+//   - exact known identifier strings passed as knownIds: record IDs present in the input bundle, source_refs
+//     that are verified record IDs or URLs present in the bundle, and contract IDs (E1, F2, C1…) actually
+//     defined in the output. Matching is whole-token only, so "C200" is still checked even if "C2" exists.
+// Identifier digits never count as SUPPORT either: the same stripping is applied to the input corpus.
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function stripIdentifiers(text, knownIds = []) {
+  if (typeof text !== 'string') return '';
+  let t = text.replace(UUID_RE, ' ');
+  for (const id of knownIds) {
+    t = t.replace(new RegExp(`(^|[^A-Za-z0-9])${escapeRe(id)}(?![A-Za-z0-9])`, 'g'), '$1 ');
+  }
+  return t;
+}
+export function quantityTokens(text, knownIds = []) {
+  const m = stripIdentifiers(text, knownIds).match(/\d+(?:[.,]\d+)*/g) || [];
   return m.map((t) => t.replace(/[.,]/g, '')).filter(Boolean);
 }
-function tokenSet(texts) {
+function tokenSet(texts, knownIds = []) {
   const s = new Set();
-  for (const t of texts) for (const q of quantityTokens(t)) s.add(q);
+  for (const t of texts) for (const q of quantityTokens(t, knownIds)) s.add(q);
   return s;
+}
+// Record identifiers carried by the input bundle (never human-authored quantities).
+export function bundleIdentifiers(bundle) {
+  const ids = [bundle?.signal?.case_id, bundle?.organization?.id, bundle?.previous_assessment?.review_item_id,
+    bundle?.previous_assessment?.agent_run_id, bundle?.latest_info_request?.event_id];
+  for (const c of bundle?.context || []) ids.push(c.event_id, c.info_request_event_id);
+  for (const rc of bundle?.related_cases || []) ids.push(rc.case_id);
+  return ids.filter((x) => typeof x === 'string' && x.length > 0);
 }
 function collectStrings(value, out = []) {
   if (typeof value === 'string') out.push(value);
@@ -92,8 +116,14 @@ export function validateRadarOutput(output, bundle) {
   };
 
   // ---------- provenance ----------
-  const corpusTokens = tokenSet(bundleCorpus(bundle));
   const bundleJson = JSON.stringify(bundle ?? {});
+  const recordIds = bundleIdentifiers(bundle);
+  const verifiedRefs = output.evidence
+    .map((e) => e.source_ref)
+    .filter((ref) => typeof ref === 'string' && bundleJson.includes(ref)
+      && (recordIds.includes(ref) || /^https?:\/\/\S+$/i.test(ref)));
+  const knownIds = [...new Set([...recordIds, ...verifiedRefs, ...byId.keys()])].sort((a, b) => b.length - a.length);
+  const corpusTokens = tokenSet(bundleCorpus(bundle), knownIds);
   const relatedIds = new Set((bundle?.related_cases || []).map((c) => c.case_id));
   const hasContext = (bundle?.context || []).length > 0;
   const manuelMayProvide = hasContext || bundle?.signal?.source_type === 'MANUEL_OBSERVATION';
@@ -103,7 +133,7 @@ export function validateRadarOutput(output, bundle) {
     if (e.provided_by === 'MANUEL' && !manuelMayProvide) add('PROVENANCE', p, 'provided_by MANUEL but Manuel supplied no observation/context');
     if (e.provided_by === 'AGENCY_OS_RECORD' && !relatedIds.has(e.source_ref)) add('PROVENANCE', p, 'AGENCY_OS_RECORD evidence must cite a related case id as source_ref');
     if (e.source_ref !== null && !bundleJson.includes(e.source_ref)) add('PROVENANCE', p, 'source_ref does not appear in the input bundle');
-    for (const q of quantityTokens(e.content)) {
+    for (const q of quantityTokens(e.content, knownIds)) {
       if (!corpusTokens.has(q)) add('UNSUPPORTED_QUANTITY', `${p}.content`, `quantity "${q}" does not appear in the supplied input`);
     }
   });
@@ -116,8 +146,8 @@ export function validateRadarOutput(output, bundle) {
   output.facts.forEach((f, i) => {
     const p = `$.facts[${i}]`;
     f.evidence_ids.forEach((id) => { if (!exists(id) || kind(id) !== 'E') add('BROKEN_REF', p, `fact cites missing evidence ${id}`); });
-    const cited = tokenSet(f.evidence_ids.map(textOf));
-    for (const q of quantityTokens(f.statement)) {
+    const cited = tokenSet(f.evidence_ids.map(textOf), knownIds);
+    for (const q of quantityTokens(f.statement, knownIds)) {
       if (!cited.has(q)) add('UNSUPPORTED_QUANTITY', `${p}.statement`, `quantity "${q}" not present in cited evidence`);
     }
   });
@@ -178,7 +208,7 @@ export function validateRadarOutput(output, bundle) {
       if (!exists(id)) add('BROKEN_REF', `${p}.reason_why`, `value basis ${id} does not exist`);
       else if (!['E', 'F', 'I'].includes(kind(id))) add('VALUE_BASIS', `${p}.reason_why`, `value basis must be evidence, fact or inference, got ${id}`);
     });
-    const valueQs = quantityTokens(rw.potential_value);
+    const valueQs = quantityTokens(rw.potential_value, knownIds);
     if (valueQs.length > 0 && !rw.value_is_quantified) add('UNSUPPORTED_QUANTITY', `${p}.reason_why`, 'potential_value states a quantity but value_is_quantified is false');
     if (rw.value_is_quantified) {
       if (rw.value_basis_ids.length === 0) add('UNSUPPORTED_QUANTITY', `${p}.reason_why`, 'quantified value requires value_basis_ids');
@@ -188,7 +218,7 @@ export function validateRadarOutput(output, bundle) {
         const r = byId.get(id);
         if (r?.section === 'inferences') basisTexts.push(r.item.reasoning); // derived arithmetic must be shown in reasoning
       }
-      const basis = tokenSet(basisTexts);
+      const basis = tokenSet(basisTexts, knownIds);
       for (const q of valueQs) if (!basis.has(q)) add('UNSUPPORTED_QUANTITY', `${p}.reason_why.potential_value`, `quantity "${q}" is not traceable to value_basis_ids`);
     }
     c.critical_unknown_ids.forEach((id) => {
