@@ -1,8 +1,21 @@
 // GROWTH BLUEPRINT worker: DB-polling, serial. The database owns eligibility (explicit Manuel authorization,
 // commercial MODIFY, automatic retry: max 2 per governed input version + 5-min backoff), the 15-min abandon sweep,
-// and integrity at completion. No normalization is applied to Blueprint output (strict contract).
+// and integrity at completion. The only normalization is the audited contract_version constant (normalizeBlueprintOutput).
 import { buildBlueprintRequest, buildBlueprintManifest, BLUEPRINT_TOOL_NAME } from './prompt.js';
 import { validateBlueprintOutput } from './validate.js';
+import { BLUEPRINT_CONTRACT_VERSION } from './contract.js';
+
+// Narrow audited normalization (evidence: production runs ac8d03e6 and cfbb04c1 omitted the top-level constant).
+// If and only if the top-level contract_version key is ABSENT, insert the fixed contract constant and record it.
+// A present contract_version with any other value or type is left untouched and fails validation.
+// No other missing field is ever completed.
+export function normalizeBlueprintOutput(input) {
+  const applied = [];
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { output: input, applied };
+  if (Object.prototype.hasOwnProperty.call(input, 'contract_version')) return { output: input, applied };
+  applied.push({ rule: 'CONTRACT_VERSION_OMITTED_TO_CONST', path: '$.contract_version', value: BLUEPRINT_CONTRACT_VERSION });
+  return { output: { contract_version: BLUEPRINT_CONTRACT_VERSION, ...input }, applied };
+}
 
 export function createBlueprintWorker({ supabase, anthropic, model, pollIntervalMs = 30000, modelTimeoutMs = 600000, log = console }) {
   const status = {
@@ -39,20 +52,20 @@ export function createBlueprintWorker({ supabase, anthropic, model, pollInterval
     } catch (e) {
       return fail(runId, manifest, `MODEL_CALL_FAILED: ${e.message}`, null);
     }
-    manifest = buildBlueprintManifest({ request, bundle, runId, extra: {
-      response_meta: { id: response.id, model: response.model, stop_reason: response.stop_reason, usage: response.usage },
-      normalizations: [],
-    } });
+    const responseMeta = { id: response.id, model: response.model, stop_reason: response.stop_reason, usage: response.usage };
+    manifest = buildBlueprintManifest({ request, bundle, runId, extra: { response_meta: responseMeta, normalizations: [] } });
     const toolUse = (response.content || []).find((blk) => blk.type === 'tool_use' && blk.name === BLUEPRINT_TOOL_NAME);
     if (!toolUse) return fail(runId, manifest, `NO_TOOL_OUTPUT: stop_reason=${response.stop_reason}`, { content: response.content });
     if (response.stop_reason === 'max_tokens') return fail(runId, manifest, 'TRUNCATED_OUTPUT: max_tokens reached', { output: toolUse.input });
-    const { valid, violations } = validateBlueprintOutput(toolUse.input, bundle);
+    const { output, applied: normalizations } = normalizeBlueprintOutput(toolUse.input);
+    manifest = buildBlueprintManifest({ request, bundle, runId, extra: { response_meta: responseMeta, normalizations } });
+    const { valid, violations } = validateBlueprintOutput(output, bundle);
     if (!valid) {
       const summary = violations.slice(0, 20).map((x) => `${x.code} ${x.path}: ${x.message}`).join(' | ');
-      return fail(runId, manifest, `VALIDATION_FAILED (${violations.length}): ${summary}`, { output: toolUse.input, violations });
+      return fail(runId, manifest, `VALIDATION_FAILED (${violations.length}): ${summary}`, { output, violations });
     }
     try {
-      const res = await rpc('blueprint_complete_run', { p_run_id: runId, p_prompt: JSON.stringify(manifest), p_output: toolUse.input });
+      const res = await rpc('blueprint_complete_run', { p_run_id: runId, p_prompt: JSON.stringify(manifest), p_output: output });
       status.runs_completed += 1;
       status.last_outcome = `COMPLETED ${runId} -> review_item ${res?.review_item_id}`;
       log.info(`[blueprint] run ${runId} completed; commercial review item ${res?.review_item_id}`);

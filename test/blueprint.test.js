@@ -103,7 +103,7 @@ test('prompt carries canonical engine semantics, authoritative human guidance an
     'NOT client acceptance, NOT authorization for outbound contact, NOT a completed sale and NOT permission to start FACTORY']) {
     assert.ok(BLUEPRINT_SYSTEM_PROMPT.includes(s), `missing: ${s}`);
   }
-  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.0');
+  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.1');
 });
 test('request forces the Blueprint tool, non-strict, with the contract schema', () => {
   const req = buildBlueprintRequest(bpBundle, 'm');

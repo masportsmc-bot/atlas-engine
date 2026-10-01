@@ -50,6 +50,29 @@ function narrativeStrings(value, path = '$', out = []) {
   return out;
 }
 
+// Narrow enumeration-marker exemption (evidence: production runs cfbb04c1 "(1)…(5)" and 7f88ecf4 "1)…6)").
+// A narrative string's list markers are exempt from numeric traceability ONLY when ALL of these hold:
+//   - each marker is "(n)" or "n)" (one or two digits) in structural position: at the start of the string or after
+//     whitespace/punctuation, and followed by whitespace;
+//   - all markers in the string use the same style;
+//   - their values are exactly 1, 2, …, k in order (consecutive, each exactly once), with 2 <= k <= 10.
+// Only the marker characters are removed; every other number in the same string is still traced. If any condition
+// fails, nothing is exempted and every number (markers included) is traced as before. radar/validate.js is unchanged.
+export const ENUMERATION_MAX = 10;
+const ENUM_MARKER = /(^|[\s:;,.!?\u2014\u2013-])(\(?)(\d{1,2})\)(?=\s)/g;
+export function stripEnumerationMarkers(text) {
+  if (typeof text !== 'string') return { text, exempted: [] };
+  const found = [...text.matchAll(ENUM_MARKER)].map((m) => ({ index: m.index + m[1].length, raw: m[2] + m[3] + ')', paren: m[2] === '(', value: Number(m[3]) }));
+  const k = found.length;
+  const ok = k >= 2 && k <= ENUMERATION_MAX
+    && found.every((f) => f.paren === found[0].paren)
+    && found.every((f, i) => f.value === i + 1);
+  if (!ok) return { text, exempted: [] };
+  let out = text;
+  for (const f of [...found].reverse()) out = out.slice(0, f.index) + out.slice(f.index + f.raw.length);
+  return { text: out, exempted: found.map((f) => f.raw) };
+}
+
 export function validateBlueprintOutput(output, bundle) {
   const v = [];
   const add = (code, path, message) => v.push({ code, path, message });
@@ -117,7 +140,7 @@ export function validateBlueprintOutput(output, bundle) {
     for (const q of quantityTokens(t, knownIds)) corpus.add(q);
   }
   for (const { path, text } of narrativeStrings(output)) {
-    for (const q of quantityTokens(text, knownIds)) {
+    for (const q of quantityTokens(stripEnumerationMarkers(text).text, knownIds)) {
       if (!corpus.has(q)) add('UNSUPPORTED_QUANTITY', path, `quantity "${q}" does not appear in the governed input`);
     }
   }
