@@ -66,11 +66,27 @@ test('FACT consequence may rest only on evidence/facts', () => bad((o) => { o.re
 test('PRODUCT component is rejected when PRODUCT is not approved', () => bad((o) => { o.solution_blueprint.components[1].engine = 'PRODUCT'; }, 'ENGINE_NOT_APPROVED'));
 test('FACTORY approved: eventual scope must be described', () => bad((o) => { o.solution_blueprint.factory_scope = null; }, 'FACTORY_SCOPE'));
 test('every FACTORY component must be in factory_scope', () => bad((o) => { o.solution_blueprint.factory_scope.component_ids = ['K1']; }, 'FACTORY_SCOPE'));
+test('factory_scope must not exist when FACTORY is not an approved route', () => {
+  const bundle = structuredClone(bpBundle); bundle.radar_decision.approved_routes = ['GROWTH'];
+  const o = bpOutput(); o.basis.approved_routes = ['GROWTH'];
+  o.solution_blueprint.components = [o.solution_blueprint.components[0]]; o.solution_blueprint.phases = [o.solution_blueprint.phases[0]];
+  assert.ok(codes(validateBlueprintOutput(o, bundle)).includes('FACTORY_SCOPE'));
+  o.solution_blueprint.factory_scope = null;
+  assert.deepEqual(validateBlueprintOutput(o, bundle).violations, []);
+});
 test('component must belong to a phase', () => bad((o) => { o.solution_blueprint.phases[1].component_ids = ['K1']; }, 'BLUEPRINT_INCOMPLETE'));
 test('phase cannot reference a missing component', () => bad((o) => { o.solution_blueprint.phases[0].component_ids = ['K9']; }, 'BROKEN_REF'));
 
 // ---------------- unknowns carried; Unknown != Blocker ----------------
-test('every material RADAR unknown must be carried forward', () => bad((o) => { o.commercial_questions[1].unknown_ids = ['U2']; }, 'UNKNOWN_NOT_CARRIED'));
+test('a USEFUL RADAR unknown must also be carried forward', () => bad((o) => { o.commercial_questions[1].unknown_ids = ['U2']; }, 'UNKNOWN_NOT_CARRIED'));
+test('a DECISION_CRITICAL RADAR unknown must be carried forward', () => bad((o) => { o.commercial_questions[0].unknown_ids = []; }, 'UNKNOWN_NOT_CARRIED'));
+test('carrying unknowns forward does not make them blocking: all carried, none blocking, APPROVE is valid', () => {
+  const o = bpOutput();
+  assert.deepEqual([...new Set(o.commercial_questions.flatMap((q) => q.unknown_ids))].sort(), ['U1', 'U2', 'U3']);
+  assert.ok(o.commercial_questions.every((q) => q.blocks_next_decision === false));
+  assert.equal(o.commercial_recommendation.recommendation, 'APPROVE');
+  assert.deepEqual(validateBlueprintOutput(o, bpBundle).violations, []);
+});
 test('APPROVE is impossible while a question blocks the next decision', () => bad((o) => { o.commercial_questions[0].blocks_next_decision = true; }, 'RECOMMENDATION'));
 test('a blocking question with HOLD is valid', () => {
   const o = bpOutput(); o.commercial_questions[0].blocks_next_decision = true; o.commercial_recommendation.recommendation = 'HOLD';
@@ -81,7 +97,10 @@ test('a blocking question with HOLD is valid', () => {
 test('prompt carries canonical engine semantics, authoritative human guidance and FACTORY non-execution', () => {
   for (const s of ['GROWTH: detect, diagnose, design, demonstrate and sell the opportunity.', 'FACTORY does NOT execute here',
     'Never use PRODUCT unless it is among the approved routes', 'Human guidance is authoritative', 'never reinterpret or silently override them',
-    'A hypothesis stays a hypothesis', 'Unknown != Blocker', 'not a functioning implementation', 'does not authorize outbound contact or start FACTORY']) {
+    'A hypothesis stays a hypothesis', 'Unknown != Blocker', 'not a functioning implementation',
+    'Carrying an unknown forward does not make it blocking', 'DECISION_CRITICAL and USEFUL alike',
+    'When FACTORY is an approved route, factory_scope is mandatory', 'executes_now must be false',
+    'NOT client acceptance, NOT authorization for outbound contact, NOT a completed sale and NOT permission to start FACTORY']) {
     assert.ok(BLUEPRINT_SYSTEM_PROMPT.includes(s), `missing: ${s}`);
   }
   assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.0');
