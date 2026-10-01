@@ -184,7 +184,7 @@ test('provenance unchanged: AGENCY_OS_RECORD must cite a related case', () => {
 
 // ---------------- prompt contains the explicit consistency rules ----------------
 test('prompt states the contract-consistency rules and template version is bumped', () => {
-  assert.equal(TEMPLATE_VERSION, '0.1.2');
+  assert.equal(TEMPLATE_VERSION, '0.1.3');
   for (const needle of [
     'supporting_ids may reference only facts (F) and inferences (I)',
     'critical_unknown_ids must be DECISION_CRITICAL',

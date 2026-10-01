@@ -13,6 +13,41 @@ export function completeNullableShape(input) {
   return { ...input, info_request: null };
 }
 
+// Narrow audited normalization (authorized, template 0.1.3). The model has repeatedly emitted an undeclared
+// `content_note: null` on evidence items (runs 32a3e4df, 4140cece, a66c4593, 71c1cf5e — always $.evidence[n], always null).
+// Exactly that case is dropped before validation and recorded. Everything else stays strict:
+//   - content_note with ANY non-null value (including "", false, 0, {}, []) is left in place -> schema violation -> FAIL;
+//   - content_note anywhere other than an evidence item is left in place -> FAIL;
+//   - any other undeclared property, null or not, is left in place -> FAIL.
+export function dropNullContentNote(input) {
+  const applied = [];
+  if (!input || typeof input !== 'object' || Array.isArray(input) || !Array.isArray(input.evidence)) return { output: input, applied };
+  let changed = false;
+  const evidence = input.evidence.map((item, i) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)
+        && Object.prototype.hasOwnProperty.call(item, 'content_note') && item.content_note === null) {
+      const { content_note: _dropped, ...rest } = item;
+      changed = true;
+      applied.push({ rule: 'DROP_NULL_CONTENT_NOTE', path: `$.evidence[${i}].content_note` });
+      return rest;
+    }
+    return item;
+  });
+  return { output: changed ? { ...input, evidence } : input, applied };
+}
+
+// All pre-validation normalizations, each recorded for the run manifest.
+export function normalizeModelOutput(input) {
+  const applied = [];
+  let output = input;
+  if (output && typeof output === 'object' && !Array.isArray(output) && !Object.prototype.hasOwnProperty.call(output, 'info_request')) {
+    output = completeNullableShape(output);
+    applied.push({ rule: 'INFO_REQUEST_OMITTED_TO_NULL', path: '$.info_request' });
+  }
+  const cn = dropNullContentNote(output);
+  return { output: cn.output, applied: [...applied, ...cn.applied] };
+}
+
 export function createRadarWorker({ supabase, anthropic, model, pollIntervalMs = 30000, modelTimeoutMs = 600000, log = console }) {
   const status = {
     enabled: true, model, poll_interval_ms: pollIntervalMs, busy: false,
@@ -60,7 +95,14 @@ export function createRadarWorker({ supabase, anthropic, model, pollIntervalMs =
     if (!toolUse) return fail(runId, manifest, `NO_TOOL_OUTPUT: stop_reason=${response.stop_reason}`, { content: response.content });
     if (response.stop_reason === 'max_tokens') return fail(runId, manifest, 'TRUNCATED_OUTPUT: max_tokens reached', { output: toolUse.input });
 
-    const normalizedInput = completeNullableShape(toolUse.input);
+    const { output: normalizedInput, applied: normalizations } = normalizeModelOutput(toolUse.input);
+    manifest = buildManifest({
+      request, bundle, runId,
+      extra: {
+        response_meta: { id: response.id, model: response.model, stop_reason: response.stop_reason, usage: response.usage },
+        normalizations, // audit trail of every pre-validation normalization (empty array when none)
+      },
+    });
     const { valid, violations } = validateRadarOutput(normalizedInput, bundle);
     if (!valid) {
       const summary = violations.slice(0, 20).map((x) => `${x.code} ${x.path}: ${x.message}`).join(' | ');
