@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import http from 'node:http';
 import { createRadarWorker } from './radar/worker.js';
+import { createBlueprintWorker } from './blueprint/worker.js';
+import { BLUEPRINT_CONTRACT_VERSION } from './blueprint/contract.js';
+import { BLUEPRINT_TEMPLATE_VERSION } from './blueprint/prompt.js';
 import { CONTRACT_VERSION } from './radar/contract.js';
 import { TEMPLATE_VERSION } from './radar/prompt.js';
 
@@ -28,6 +31,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2 });
 
 const worker = createRadarWorker({ supabase, anthropic, model: MODEL, pollIntervalMs: POLL_INTERVAL_MS });
+// Growth Blueprint worker: OFF unless BLUEPRINT_WORKER_ENABLED=true (deploy the DB migration first).
+// Even when enabled it only processes cases Manuel has explicitly authorized (or commercially modified).
+const BLUEPRINT_ENABLED = (process.env.BLUEPRINT_WORKER_ENABLED || '').trim().toLowerCase() === 'true';
+const BLUEPRINT_MODEL = (process.env.BLUEPRINT_MODEL || MODEL).trim();
+const blueprintWorker = BLUEPRINT_ENABLED
+  ? createBlueprintWorker({ supabase, anthropic, model: BLUEPRINT_MODEL, pollIntervalMs: POLL_INTERVAL_MS })
+  : null;
 
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -39,6 +49,9 @@ const server = http.createServer((req, res) => {
       contract_version: CONTRACT_VERSION,
       prompt_template_version: TEMPLATE_VERSION,
       radar_worker: worker.status,
+      blueprint_contract_version: BLUEPRINT_CONTRACT_VERSION,
+      blueprint_template_version: BLUEPRINT_TEMPLATE_VERSION,
+      blueprint_worker: blueprintWorker ? blueprintWorker.status : { enabled: false },
     }));
     return;
   }
@@ -50,12 +63,14 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Agency OS engine listening on ${PORT} (RADAR_CORE ${CONTRACT_VERSION}, model ${MODEL})`);
   worker.start();
+  if (blueprintWorker) blueprintWorker.start();
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     console.log(`${sig} received: stopping worker`);
     worker.stop();
+    if (blueprintWorker) blueprintWorker.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 10000).unref();
   });
