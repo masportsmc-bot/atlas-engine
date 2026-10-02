@@ -9,9 +9,8 @@ import { bpBundle, bpOutput } from './fixtures-blueprint.js';
 import { replayBundleCfbb, replayBundle7f88, replayOutputCfbb, replayOutput7f88 } from './fixtures-blueprint-replay.js';
 
 const quantityMsgs = (r) => r.violations.filter((v) => v.code === 'UNSUPPORTED_QUANTITY').map((v) => v.message.match(/"([^"]+)"/)[1]);
-// Matcher tests use a bundle whose governed input contains no small numbers at all: the shared fixture mentions
-// "3 sedes" and carries 2026-09-30 timestamps, and the (pre-existing) corpus also tokenises timestamps, which would
-// make 3/30/09/12… count as "supported". Here the only digits in the corpus are 2026, 12, 31, 23, 58, 57.
+// Matcher tests use a bundle whose governed business content contains no numbers at all (the shared fixture
+// mentions "3 sedes"), so every number under test is unsupported unless exempted.
 function cleanBundle() {
   const b = structuredClone(bpBundle);
   b.context[0].content = 'La web actual es muy básica.';

@@ -10,12 +10,6 @@ export const MAX_BLUEPRINT_BYTES = 200_000;
 const FORBIDDEN_KEY = /(confidence|probability|likelihood|certainty|score)/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function collectStrings(value, out = []) {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) value.forEach((v) => collectStrings(v, out));
-  else if (value && typeof value === 'object') Object.values(value).forEach((v) => collectStrings(v, out));
-  return out;
-}
 function collectIds(value, out = new Set()) {
   if (Array.isArray(value)) value.forEach((v) => collectIds(v, out));
   else if (value && typeof value === 'object') {
@@ -71,6 +65,46 @@ export function stripEnumerationMarkers(text) {
   let out = text;
   for (const f of [...found].reverse()) out = out.slice(0, f.index) + out.slice(f.index + f.raw.length);
   return { text: out, exempted: found.map((f) => f.raw) };
+}
+
+// Numeric input provenance. Principle: machine metadata must not authorize business quantities.
+// The set of numbers that "appear in the governed input" is built ONLY from business/content fields (RADAR's
+// content-oriented approach): signal text; context content and answers; prospect; organization name/type/
+// specialization/location; the approved RADAR snapshot's narrative fields; Manuel's RADAR decision rationale;
+// Manuel's commercial modification and its rationale; related cases' signal and decision rationales.
+// Never: timestamps (observed_at, added_at, decided_at, received_at, created_at), identifiers (id, *_id, *_ids,
+// source_ref, UUIDs, hashes), generated case names, version strings, labels/enums. The previous Blueprint
+// (a model artifact returned for modification) is not evidence and authorizes no quantity; its legitimate numbers
+// can only have come from the sources above. Any UUID or ISO-8601 timestamp embedded inside content text is
+// removed before tokenising, so it cannot authorize a quantity either.
+const NON_CONTENT_KEY = /^(id|.+_id|.+_ids|source_ref|source_type|provided_by|observed_at|added_at|decided_at|received_at|created_at|contract_version|bundle_version|signal_sha256|materiality|strength|resolvable_by|origin|kind|level|disposition|recommended_disposition|engine)$/;
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const ISO_TIMESTAMP_IN_TEXT = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2}|\s?UTC)?/g;
+function contentStrings(value, out = []) {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) value.forEach((v) => contentStrings(v, out));
+  else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) if (!NON_CONTENT_KEY.test(k)) contentStrings(v, out);
+  }
+  return out;
+}
+export function blueprintNumericInputTexts(bundle) {
+  const t = [];
+  if (typeof bundle?.signal?.text === 'string') t.push(bundle.signal.text);
+  for (const c of bundle?.context || []) { contentStrings(c?.content, t); contentStrings(c?.answers, t); }
+  if (bundle?.prospect) contentStrings(bundle.prospect, t);
+  if (bundle?.organization) {
+    for (const k of ['name', 'type', 'specialization', 'location']) if (typeof bundle.organization[k] === 'string') t.push(bundle.organization[k]);
+  }
+  contentStrings(bundle?.radar?.snapshot, t);
+  if (typeof bundle?.radar_decision?.rationale === 'string') t.push(bundle.radar_decision.rationale);
+  const m = bundle?.commercial_modification;
+  if (m) for (const k of ['modification', 'rationale']) if (typeof m[k] === 'string') t.push(m[k]);
+  for (const rc of bundle?.related_cases || []) {
+    if (typeof rc?.signal === 'string') t.push(rc.signal);
+    for (const d of rc?.decisions || []) if (typeof d?.rationale === 'string') t.push(d.rationale);
+  }
+  return t.map((x) => x.replace(UUID_IN_TEXT, ' ').replace(ISO_TIMESTAMP_IN_TEXT, ' '));
 }
 
 export function validateBlueprintOutput(output, bundle) {
@@ -135,8 +169,7 @@ export function validateBlueprintOutput(output, bundle) {
   const knownIds = [...new Set([...collectIds(bundle), ...reg.keys(), ...ownIds])].filter((x) => typeof x === 'string' && x.length > 0)
     .sort((a, c) => c.length - a.length);
   const corpus = new Set();
-  for (const t of collectStrings({ signal: bundle?.signal?.text, context: bundle?.context, prospect: bundle?.prospect,
-    organization: bundle?.organization, radar: radar, decision: decision.rationale, modification, related: bundle?.related_cases })) {
+  for (const t of blueprintNumericInputTexts(bundle)) {
     for (const q of quantityTokens(t, knownIds)) corpus.add(q);
   }
   for (const { path, text } of narrativeStrings(output)) {
