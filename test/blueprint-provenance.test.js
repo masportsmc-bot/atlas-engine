@@ -7,6 +7,7 @@ import { validateBlueprintOutput, blueprintNumericInputTexts, stripEnumerationMa
 import { normalizeBlueprintOutput } from '../blueprint/worker.js';
 import { quantityTokens } from '../radar/validate.js';
 import { replayBundleCfbb, replayBundle7f88, replayOutputCfbb, replayOutput7f88 } from './fixtures-blueprint-replay.js';
+import { withoutAndinoEpistemic } from './andino-epistemic.js';
 
 const unsupported = (r) => r.violations.filter((v) => v.code === 'UNSUPPORTED_QUANTITY').map((v) => v.message.match(/"([^"]+)"/)[1]);
 function check(narrative, bundle = replayBundle7f88()) {
@@ -52,7 +53,7 @@ test('related cases: generated case_name dates do not authorize; human signal an
   b.related_cases = [{ case_id: 'x', case_name: 'Otro despacho · 2026-08-14 11:22 UTC', signal: 'Web con 9 secciones', status: 'LEGACY',
     created_at: '2026-08-14T11:22:00Z', decisions: [{ gate: 'RADAR', decision: 'HOLD', rationale: 'Revisar en 4 semanas', decided_at: '2026-08-15T10:00:00Z' }] }];
   assert.deepEqual(unsupported(check('Dato: 14 y 22.', b)).sort(), ['14', '22']);
-  assert.deepEqual(check('Como en el caso anterior: 9 secciones, revisión en 4 semanas.', b).violations, []);
+  assert.deepEqual(check('Como en el caso anterior: 9 secciones, revisión en 4 semanas.', b).violations.filter(withoutAndinoEpistemic), []);
 });
 
 // ---------------- legitimate business content still authorizes ----------------
@@ -70,19 +71,19 @@ const SOURCES = [
 for (const [label, mutate] of SOURCES) {
   test(`a quantity genuinely present in governed business content remains allowed: ${label}`, () => {
     const b = replayBundle7f88(); mutate(b);
-    assert.deepEqual(check('Sus 14 sedes merecen una web a su altura.', b).violations, []);
+    assert.deepEqual(check('Sus 14 sedes merecen una web a su altura.', b).violations.filter(withoutAndinoEpistemic), []);
     assert.deepEqual(unsupported(check('Sus 14 sedes merecen una web a su altura.', replayBundle7f88())), ['14'], 'and not without that content');
   });
 }
 
 // ---------------- the approved repairs still hold on the faithful input ----------------
 test('REPLAY 7f88ecf4 still has zero violations under the provenance repair', () => {
-  assert.deepEqual(validateBlueprintOutput(replayOutput7f88(), replayBundle7f88()).violations, []);
+  assert.deepEqual(validateBlueprintOutput(replayOutput7f88(), replayBundle7f88()).violations.filter(withoutAndinoEpistemic), []);
 });
 test('REPLAY cfbb04c1 still has zero violations (contract_version normalization + enumeration)', () => {
   const { output, applied } = normalizeBlueprintOutput(replayOutputCfbb());
   assert.deepEqual(applied.map((a) => a.rule), ['CONTRACT_VERSION_OMITTED_TO_CONST']);
-  assert.deepEqual(validateBlueprintOutput(output, replayBundleCfbb()).violations, []);
+  assert.deepEqual(validateBlueprintOutput(output, replayBundleCfbb()).violations.filter(withoutAndinoEpistemic), []);
 });
 test('faithful input: "1) ROI 30%" in an enumeration rejects 30; the markers stay exempt', () => {
   const o = replayOutput7f88();

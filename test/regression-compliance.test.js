@@ -47,7 +47,7 @@ const outputR = () => ({
     { id: 'U1', question: '¿Tiene el despacho interés en rediseñar la web?', materiality: 'DECISION_CRITICAL', why_it_matters: 'Sin interés no hay encargo', resolvable_by: 'MANUEL' },
     { id: 'U2', question: '¿Qué tráfico recibe la web?', materiality: 'USEFUL', why_it_matters: 'Dimensiona el valor', resolvable_by: 'PROSPECT' },
   ],
-  diagnoses: [{ id: 'D1', statement: 'Presencia digital obsoleta que limita la captación.', supporting_ids: ['F1', 'F2', 'I1'], assumption_ids: [], alternative_explanation: 'Captan clientes por referidos.', strength: 'ESTABLISHED' }],
+  diagnoses: [{ id: 'D1', statement: 'Presencia digital obsoleta que limita la captación.', supporting_ids: ['F1', 'F2', 'I1'], assumption_ids: [], alternative_explanation: 'Captan clientes por referidos.', strength: 'TENTATIVE' }],
   candidates: [{
     id: 'C1', title: 'Auditoría y propuesta de rediseño web', diagnosis_ids: ['D1'], intervention: 'Rediseño orientado a captación.',
     reason_why: { signal: 's', business_consequence: 'Pérdida de clientes potenciales', intervention: 'Rediseño', potential_value: 'Mejor captación (cualitativo).', value_basis_ids: [], value_is_quantified: false },

@@ -2,6 +2,7 @@
 // Returns { valid: boolean, violations: [{ code, path, message }] }. Never throws on bad model output.
 import Ajv from 'ajv';
 import { radarSchema, CONTRACT_VERSION } from './contract.js';
+import { LEVEL, LEVEL_NAME, researchIndex, subjectDomain, evidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from './epistemic.js';
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const checkSchema = ajv.compile(radarSchema);
@@ -123,7 +124,8 @@ export function validateRadarOutput(output, bundle) {
     .filter((ref) => typeof ref === 'string' && bundleJson.includes(ref)
       && (recordIds.includes(ref) || /^https?:\/\/\S+$/i.test(ref)));
   const knownIds = [...new Set([...recordIds, ...verifiedRefs, ...byId.keys()])].sort((a, b) => b.length - a.length);
-  const corpusTokens = tokenSet(bundleCorpus(bundle), knownIds);
+  // Verified research excerpts (optional bundle.research_sources; absent today) are supplied input for quantities too.
+  const corpusTokens = tokenSet([...bundleCorpus(bundle), ...verifiedExcerpts(bundle)], knownIds);
   const relatedIds = new Set((bundle?.related_cases || []).map((c) => c.case_id));
   const hasContext = (bundle?.context || []).length > 0;
   const manuelMayProvide = hasContext || bundle?.signal?.source_type === 'MANUEL_OBSERVATION';
@@ -197,6 +199,66 @@ export function validateRadarOutput(output, bundle) {
       if (!d.supporting_ids.some((id) => kind(id) === 'F')) add('DIAGNOSIS_STRENGTH', p, 'ESTABLISHED requires at least one supporting fact');
     }
   });
+
+  // ---------- epistemic levels: OBSERVED < SOURCE_VERIFIED < CORROBORATED (radar/epistemic.js) ----------
+  {
+    const index = researchIndex(bundle);
+    const subjDom = subjectDomain(bundle);
+    const ev = new Map(output.evidence.map((e) => [e.id, evidenceLevel(e, index, subjDom)]));
+    output.evidence.forEach((e, i) => {
+      const x = ev.get(e.id);
+      if (x.issue === 'EXCERPT_MISMATCH') add('RESEARCH_EXCERPT_MISMATCH', `$.evidence[${i}].content`, 'evidence cites a verified research source but does not carry its verified excerpt');
+    });
+    const fl = new Map();
+    output.facts.forEach((f, i) => {
+      const r = factLevel(f.evidence_ids.filter((id) => ev.has(id)).map((id) => ev.get(id)));
+      fl.set(f.id, r);
+      if (r.hasUnconfirmed) add('FACT_ON_UNCONFIRMED', `$.facts[${i}]`, 'a fact cannot rest on an unconfirmed research lead or a misquoted source');
+      if (r.selfOnly && !isAttributed(f.statement)) add('UNATTRIBUTED_SELF_PUBLISHED_CLAIM', `$.facts[${i}].statement`, 'content published by the subject itself must be stated as what the source says, not as independent truth');
+    });
+    // Chain level of any item: max level of the facts it ultimately rests on.
+    const memo = new Map();
+    const chain = (id, seen = new Set()) => {
+      if (memo.has(id)) return memo.get(id);
+      if (seen.has(id) || !exists(id)) return LEVEL.UNCONFIRMED;
+      seen.add(id);
+      const r = byId.get(id); let lvl;
+      switch (kind(id)) {
+        case 'E': lvl = Math.min(ev.get(id)?.level ?? LEVEL.UNCONFIRMED, LEVEL.SOURCE_VERIFIED); break;
+        case 'F': lvl = fl.get(id)?.level ?? LEVEL.UNCONFIRMED; break;
+        case 'I': lvl = Math.max(LEVEL.UNCONFIRMED, ...r.item.basis_ids.map((b) => chain(b, seen))); break;
+        case 'D': lvl = Math.max(LEVEL.UNCONFIRMED, ...r.item.supporting_ids.map((b) => chain(b, seen))); break;
+        case 'C': lvl = Math.max(LEVEL.UNCONFIRMED, ...r.item.diagnosis_ids.map((b) => chain(b, seen))); break;
+        default: lvl = LEVEL.UNCONFIRMED; // hypotheses and unknowns are never verified
+      }
+      memo.set(id, lvl); return lvl;
+    };
+    // An observation may support a diagnosis, but cannot by itself make it ESTABLISHED.
+    output.diagnoses.forEach((d, i) => {
+      if (d.strength === 'ESTABLISHED' && !d.supporting_ids.some((id) => kind(id) === 'F' && (fl.get(id)?.level ?? 0) >= LEVEL.SOURCE_VERIFIED)) {
+        add('ESTABLISHED_ON_OBSERVATION', `$.diagnoses[${i}]`, 'ESTABLISHED requires at least one supporting fact backed by a verified source; human observation alone is TENTATIVE');
+      }
+    });
+    // "verificado/confirmado/comprobado…" (non-negated) in assertive text requires a CORROBORATED basis.
+    const ceiling = Math.max(LEVEL.UNCONFIRMED, ...output.facts.map((f) => fl.get(f.id)?.level ?? 0));
+    const claimCheck = (text, path, lvl) => {
+      const terms = verificationClaims(text);
+      if (terms.length && lvl < LEVEL.CORROBORATED) add('UNSUPPORTED_VERIFICATION_CLAIM', path, `"${terms[0]}" requires corroborated evidence (basis is ${LEVEL_NAME[lvl]})`);
+    };
+    output.facts.forEach((f, i) => claimCheck(f.statement, `$.facts[${i}].statement`, chain(f.id)));
+    output.inferences.forEach((x, i) => claimCheck(x.statement, `$.inferences[${i}].statement`, chain(x.id)));
+    output.diagnoses.forEach((x, i) => claimCheck(x.statement, `$.diagnoses[${i}].statement`, chain(x.id)));
+    output.candidates.forEach((c, i) => {
+      const lvl = chain(c.id); const p = `$.candidates[${i}]`;
+      claimCheck(c.intervention, `${p}.intervention`, lvl);
+      for (const k of ['signal', 'business_consequence', 'intervention', 'potential_value']) claimCheck(c.reason_why[k], `${p}.reason_why.${k}`, lvl);
+      c.routing.forEach((r, j) => claimCheck(r.rationale, `${p}.routing[${j}].rationale`, lvl));
+      claimCheck(c.evidence_sufficiency.rationale, `${p}.evidence_sufficiency.rationale`, lvl);
+      claimCheck(c.disposition_rationale, `${p}.disposition_rationale`, lvl);
+    });
+    claimCheck(output.signal_understanding.observed, '$.signal_understanding.observed', ceiling);
+    claimCheck(output.overall_recommendation.rationale, '$.overall_recommendation.rationale', ceiling);
+  }
 
   // ---------- candidates ----------
   const candIds = new Set(output.candidates.map((c) => c.id));

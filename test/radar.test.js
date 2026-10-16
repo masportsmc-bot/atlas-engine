@@ -62,7 +62,7 @@ test('duplicate id is rejected', () => expectInvalid((o) => { o.facts[1].id = 'F
 test('fact citing missing evidence is rejected', () => expectInvalid((o) => { o.facts[0].evidence_ids = ['E9']; }, 'BROKEN_REF'));
 test('inference resting on a hypothesis is rejected', () => expectInvalid((o) => { o.inferences[1].basis_ids = ['H1']; }, 'INFERENCE_BASIS'));
 test('inference cycle is rejected', () => expectInvalid((o) => { o.inferences[0].basis_ids = ['I2']; o.inferences[1].basis_ids = ['I1']; }, 'INFERENCE_CYCLE'));
-test('ESTABLISHED diagnosis resting on a hypothesis is rejected', () => expectInvalid((o) => { o.diagnoses[0].assumption_ids = ['H1']; }, 'DIAGNOSIS_STRENGTH'));
+test('ESTABLISHED diagnosis resting on a hypothesis is rejected', () => expectInvalid((o) => { o.diagnoses[0].strength = 'ESTABLISHED'; o.diagnoses[0].assumption_ids = ['H1']; }, 'DIAGNOSIS_STRENGTH'));
 test('diagnosis supported by evidence id (not fact/inference) is rejected', () => expectInvalid((o) => { o.diagnoses[0].supporting_ids = ['E1']; }, 'DIAGNOSIS_SUPPORT'));
 
 // ---------------- provenance ----------------

@@ -3,6 +3,7 @@
 import Ajv from 'ajv';
 import { blueprintSchema, BLUEPRINT_CONTRACT_VERSION } from './contract.js';
 import { quantityTokens } from '../radar/validate.js'; // shared CORE: ID-safe numeric tracing
+import { LEVEL, LEVEL_NAME, researchIndex, subjectDomain, evidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from '../radar/epistemic.js';
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const checkSchema = ajv.compile(blueprintSchema);
@@ -169,7 +170,7 @@ export function validateBlueprintOutput(output, bundle) {
   const knownIds = [...new Set([...collectIds(bundle), ...reg.keys(), ...ownIds])].filter((x) => typeof x === 'string' && x.length > 0)
     .sort((a, c) => c.length - a.length);
   const corpus = new Set();
-  for (const t of blueprintNumericInputTexts(bundle)) {
+  for (const t of [...blueprintNumericInputTexts(bundle), ...verifiedExcerpts(bundle)]) {
     for (const q of quantityTokens(t, knownIds)) corpus.add(q);
   }
   for (const { path, text } of narrativeStrings(output)) {
@@ -212,6 +213,77 @@ export function validateBlueprintOutput(output, bundle) {
       if (!d.supporting_ids.some((id) => ['F', 'XF'].includes(cls(id)))) add('DIAGNOSIS_STRENGTH', p, 'ESTABLISHED requires at least one fact');
     }
   });
+
+  // ---------- 5b. epistemic levels: OBSERVED < SOURCE_VERIFIED < CORROBORATED (radar/epistemic.js) ----------
+  // RADAR evidence (E) and Blueprint evidence (X) resolve against the optional bundle.research_sources (absent today:
+  // every item is then OBSERVED). Manuel's notes, the signal and Agency OS records are OBSERVED by construction.
+  const index = researchIndex(bundle);
+  const subjDom = subjectDomain(bundle);
+  const ev = new Map();
+  for (const [id, r] of reg) if (r.cls === 'E' || r.cls === 'X') ev.set(id, evidenceLevel(r.item, index, subjDom));
+  output.additional_evidence.forEach((e, i) => {
+    if (ev.get(e.id)?.issue === 'EXCERPT_MISMATCH') add('RESEARCH_EXCERPT_MISMATCH', `$.additional_evidence[${i}].content`, 'evidence cites a verified research source but does not carry its verified excerpt');
+  });
+  const fl = new Map();
+  for (const f of radar.facts || []) fl.set(f.id, factLevel((f.evidence_ids || []).filter((id) => ev.has(id)).map((id) => ev.get(id))));
+  output.additional_facts.forEach((f, i) => {
+    const r = factLevel(f.evidence_ids.filter((id) => ev.has(id)).map((id) => ev.get(id)));
+    fl.set(f.id, r);
+    if (r.hasUnconfirmed) add('FACT_ON_UNCONFIRMED', `$.additional_facts[${i}]`, 'a fact cannot rest on an unconfirmed research lead or a misquoted source');
+    if (r.selfOnly && !isAttributed(f.statement)) add('UNATTRIBUTED_SELF_PUBLISHED_CLAIM', `$.additional_facts[${i}].statement`, 'content published by the subject itself must be stated as what the source says, not as independent truth');
+  });
+  const memo = new Map();
+  const chain = (id, seen = new Set()) => {
+    if (memo.has(id)) return memo.get(id);
+    const r = reg.get(id);
+    if (!r || seen.has(id)) return LEVEL.UNCONFIRMED;
+    seen.add(id);
+    const up = (ids) => Math.max(LEVEL.UNCONFIRMED, ...(ids || []).map((x) => chain(x, seen)));
+    let lvl;
+    switch (r.cls) {
+      case 'E': case 'X': lvl = Math.min(ev.get(id)?.level ?? LEVEL.UNCONFIRMED, LEVEL.SOURCE_VERIFIED); break;
+      case 'F': case 'XF': lvl = fl.get(id)?.level ?? LEVEL.UNCONFIRMED; break;
+      case 'I': case 'BI': lvl = up(r.item.basis_ids); break;
+      case 'D': case 'RD': lvl = up(r.item.supporting_ids); break;
+      case 'C': lvl = up(r.item.diagnosis_ids); break;
+      default: lvl = LEVEL.UNCONFIRMED; // hypotheses and unknowns are never verified
+    }
+    memo.set(id, lvl); return lvl;
+  };
+  output.refined_diagnosis.forEach((d, i) => {
+    if (d.strength === 'ESTABLISHED' && !d.supporting_ids.some((id) => ['F', 'XF'].includes(cls(id)) && (fl.get(id)?.level ?? 0) >= LEVEL.SOURCE_VERIFIED)) {
+      add('ESTABLISHED_ON_OBSERVATION', `$.refined_diagnosis[${i}]`, 'ESTABLISHED requires at least one supporting fact backed by a verified source; human observation alone is TENTATIVE');
+    }
+  });
+  {
+    const rw0 = output.reason_why;
+    if (rw0.consequence_epistemic_class === 'FACT' && !rw0.consequence_basis_ids.some((id) => chain(id) >= LEVEL.SOURCE_VERIFIED)) {
+      add('FACT_ON_OBSERVATION', '$.reason_why', 'a FACT consequence needs at least one basis backed by a verified source; human observation alone is not an external fact');
+    }
+    const facts = [...(radar.facts || []).map((f) => f.id), ...output.additional_facts.map((f) => f.id)];
+    const ceiling = Math.max(LEVEL.UNCONFIRMED, ...facts.map((id) => fl.get(id)?.level ?? 0));
+    const maxOf = (ids) => Math.max(LEVEL.UNCONFIRMED, ...(ids || []).map((x) => chain(x)));
+    const claimCheck = (text, path, lvl) => {
+      const terms = verificationClaims(text);
+      if (terms.length && lvl < LEVEL.CORROBORATED) add('UNSUPPORTED_VERIFICATION_CLAIM', path, `"${terms[0]}" requires corroborated evidence (basis is ${LEVEL_NAME[lvl]})`);
+    };
+    output.additional_facts.forEach((x, i) => claimCheck(x.statement, `$.additional_facts[${i}].statement`, chain(x.id)));
+    output.inferences.forEach((x, i) => claimCheck(x.statement, `$.inferences[${i}].statement`, chain(x.id)));
+    output.refined_diagnosis.forEach((x, i) => claimCheck(x.statement, `$.refined_diagnosis[${i}].statement`, chain(x.id)));
+    const rwLvl = maxOf(rw0.consequence_basis_ids);
+    for (const k of ['signal', 'business_consequence', 'intervention']) claimCheck(rw0[k], `$.reason_why.${k}`, rwLvl);
+    claimCheck(rw0.value, '$.reason_why.value', Math.max(rwLvl, maxOf(rw0.value_basis_ids)));
+    const sb0 = output.solution_blueprint;
+    claimCheck(sb0.objective, '$.solution_blueprint.objective', ceiling);
+    sb0.components.forEach((c, i) => claimCheck(c.description, `$.solution_blueprint.components[${i}].description`, maxOf(c.addresses_ids)));
+    sb0.phases.forEach((ph, i) => claimCheck(ph.description, `$.solution_blueprint.phases[${i}].description`, ceiling));
+    const dpLvl = maxOf(output.demo_pitch.claim_basis_ids);
+    claimCheck(output.demo_pitch.narrative, '$.demo_pitch.narrative', dpLvl);
+    claimCheck(output.demo_pitch.demonstration_concept, '$.demo_pitch.demonstration_concept', dpLvl);
+    output.demo_pitch.key_messages.forEach((m, i) => claimCheck(m, `$.demo_pitch.key_messages[${i}]`, dpLvl));
+    claimCheck(output.commercial_recommendation.rationale, '$.commercial_recommendation.rationale', ceiling);
+    claimCheck(output.commercial_recommendation.next_step, '$.commercial_recommendation.next_step', ceiling);
+  }
 
   // ---------- 6. Reason Why: epistemic class must match its basis (no hypothesis presented as fact) ----------
   const rw = output.reason_why;

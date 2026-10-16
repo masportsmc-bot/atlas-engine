@@ -48,7 +48,7 @@ export const outputA = () => ({
     { id: 'U1', question: 'What is the current form conversion rate?', materiality: 'USEFUL', why_it_matters: 'Sizes the opportunity', resolvable_by: 'PROSPECT' },
   ],
   diagnoses: [
-    { id: 'D1', statement: 'Paid acquisition spend is undermined by a high-friction conversion step.', supporting_ids: ['F2', 'F4', 'I2'], assumption_ids: [], alternative_explanation: 'Leads may be converted by phone instead of the form.', strength: 'ESTABLISHED' },
+    { id: 'D1', statement: 'Paid acquisition spend is undermined by a high-friction conversion step.', supporting_ids: ['F2', 'F4', 'I2'], assumption_ids: [], alternative_explanation: 'Leads may be converted by phone instead of the form.', strength: 'TENTATIVE' },
   ],
   candidates: [
     {
@@ -103,7 +103,7 @@ export const outputC = () => ({
   evidence: [{ id: 'E1', content: 'Idea to automate weekly proposal drafting.', source_type: 'INTERNAL_IDEA', source_ref: null, provided_by: 'SIGNAL', observed_at: null }],
   facts: [{ id: 'F1', statement: 'Proposal drafting is done weekly.', evidence_ids: ['E1'] }],
   inferences: [], hypotheses: [], unknowns: [],
-  diagnoses: [{ id: 'D1', statement: 'Recurring manual drafting effort.', supporting_ids: ['F1'], assumption_ids: [], alternative_explanation: null, strength: 'ESTABLISHED' }],
+  diagnoses: [{ id: 'D1', statement: 'Recurring manual drafting effort.', supporting_ids: ['F1'], assumption_ids: [], alternative_explanation: null, strength: 'TENTATIVE' }],
   candidates: [{
     id: 'C1', title: 'Internal drafting tool', diagnosis_ids: ['D1'], intervention: 'Build an internal drafting helper.',
     reason_why: { signal: 's', business_consequence: 'Time spent', intervention: 'Tool', potential_value: 'Time saved each week.', value_basis_ids: [], value_is_quantified: false },

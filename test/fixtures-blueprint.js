@@ -71,7 +71,7 @@ export const bpOutput = () => ({
   additional_facts: [],
   inferences: [{ id: 'BI1', statement: 'Una web renovada comunicaría mejor la especialización del despacho.', basis_ids: ['F1', 'I1'], reasoning: 'Los textos genéricos y el contacto débil impiden diferenciarse.' }],
   refined_diagnosis: [
-    { id: 'RD1', statement: 'La presencia web no comunica la especialización ni facilita el contacto.', refines_ids: ['D1'], supporting_ids: ['F1', 'BI1'], assumption_ids: [], strength: 'ESTABLISHED', alternative_explanation: 'Estilo minimalista deliberado.' },
+    { id: 'RD1', statement: 'La presencia web no comunica la especialización ni facilita el contacto.', refines_ids: ['D1'], supporting_ids: ['F1', 'BI1'], assumption_ids: [], strength: 'TENTATIVE', alternative_explanation: 'Estilo minimalista deliberado.' },
     { id: 'RD2', statement: 'Esa debilidad podría estar limitando la captación digital.', refines_ids: ['D2'], supporting_ids: ['I1'], assumption_ids: ['H1'], strength: 'TENTATIVE', alternative_explanation: 'La captación depende de referidos.' },
   ],
   reason_why: {

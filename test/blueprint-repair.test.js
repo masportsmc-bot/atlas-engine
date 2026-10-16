@@ -7,6 +7,7 @@ import { BLUEPRINT_SYSTEM_PROMPT, BLUEPRINT_TEMPLATE_VERSION, BLUEPRINT_TOOL } f
 import { quantityTokens } from '../radar/validate.js';
 import { bpBundle, bpOutput } from './fixtures-blueprint.js';
 import { replayBundleCfbb, replayBundle7f88, replayOutputCfbb, replayOutput7f88 } from './fixtures-blueprint-replay.js';
+import { withoutAndinoEpistemic, ANDINO_EPISTEMIC_VIOLATIONS } from './andino-epistemic.js';
 
 const quantityMsgs = (r) => r.violations.filter((v) => v.code === 'UNSUPPORTED_QUANTITY').map((v) => v.message.match(/"([^"]+)"/)[1]);
 // Matcher tests use a bundle whose governed business content contains no numbers at all (the shared fixture
@@ -26,7 +27,7 @@ test('REPLAY 7f88ecf4: enumeration handling alone makes the real output valid', 
   assert.ok('contract_version' in raw, 'this run did include contract_version');
   assert.deepEqual(normalizeBlueprintOutput(raw).applied, []);
   assert.deepEqual(stripEnumerationMarkers(raw.demo_pitch.demonstration_concept).exempted, ['1)', '2)', '3)', '4)', '5)', '6)']);
-  assert.deepEqual(validateBlueprintOutput(raw, replayBundle7f88()).violations, []);
+  assert.deepEqual(validateBlueprintOutput(raw, replayBundle7f88()).violations.filter(withoutAndinoEpistemic), []);
 });
 test('REPLAY cfbb04c1: contract_version normalization + enumeration handling make the real output valid; nothing else fails', () => {
   const raw = replayOutputCfbb();
@@ -34,7 +35,7 @@ test('REPLAY cfbb04c1: contract_version normalization + enumeration handling mak
   const { output, applied } = normalizeBlueprintOutput(raw);
   assert.deepEqual(applied.map((a) => a.rule), ['CONTRACT_VERSION_OMITTED_TO_CONST']);
   assert.deepEqual(stripEnumerationMarkers(raw.demo_pitch.demonstration_concept).exempted, ['(1)', '(2)', '(3)', '(4)', '(5)']);
-  assert.deepEqual(validateBlueprintOutput(output, replayBundleCfbb()).violations, []);
+  assert.deepEqual(validateBlueprintOutput(output, replayBundleCfbb()).violations.filter(withoutAndinoEpistemic), []);
 });
 test('REPLAY cfbb04c1: without normalization it still fails exactly as in production', () => {
   const r = validateBlueprintOutput(replayOutputCfbb(), replayBundleCfbb());
@@ -153,22 +154,31 @@ function mockWorker(toolInput, bundle) {
   const w = createBlueprintWorker({ supabase, anthropic, model: 'm', pollIntervalMs: 60000, log: { info() {}, error() {} } });
   return { w, calls };
 }
-test('worker replay cfbb04c1: completes; manifest records the normalization; persisted snapshot carries the constant', async () => {
+// Epistemic levels: the real Andino outputs are now rejected ONLY for the documented epistemic violations
+// (ESTABLISHED on Manuel's observation; "verificadas" without corroboration). The worker flow is unchanged:
+// a failing validation ends in blueprint_fail_run, with the normalization audit trail still in the manifest.
+const failedOnlyEpistemically = (f) => {
+  const codes = f.args.p_raw?.violations?.map((v) => `${v.code} ${v.path}`) ?? [];
+  assert.deepEqual(codes, ANDINO_EPISTEMIC_VIOLATIONS.map((v) => `${v.code} ${v.path}`));
+};
+test('worker replay cfbb04c1: manifest records the normalization; the run now fails only on the epistemic rules', async () => {
   const { w, calls } = mockWorker(replayOutputCfbb(), replayBundleCfbb());
   await w.tick(); w.stop();
-  const done = calls.find((c) => c.fn === 'blueprint_complete_run');
-  assert.ok(done, 'run completed');
-  const manifest = JSON.parse(done.args.p_prompt);
+  assert.ok(!calls.some((c) => c.fn === 'blueprint_complete_run'));
+  const f = calls.find((c) => c.fn === 'blueprint_fail_run');
+  assert.match(f.args.p_error, /^VALIDATION_FAILED/);
+  const manifest = JSON.parse(f.args.p_prompt);
   assert.equal(manifest.template.version, '0.1.1');
   assert.deepEqual(manifest.normalizations, [{ rule: 'CONTRACT_VERSION_OMITTED_TO_CONST', path: '$.contract_version', value: 'growth_blueprint/0.1' }]);
-  assert.equal(done.args.p_output.contract_version, 'growth_blueprint/0.1');
+  failedOnlyEpistemically(f);
 });
-test('worker replay 7f88ecf4: completes with no normalization recorded', async () => {
+test('worker replay 7f88ecf4: no normalization recorded; the run now fails only on the epistemic rules', async () => {
   const { w, calls } = mockWorker(replayOutput7f88(), replayBundle7f88());
   await w.tick(); w.stop();
-  const done = calls.find((c) => c.fn === 'blueprint_complete_run');
-  assert.ok(done);
-  assert.deepEqual(JSON.parse(done.args.p_prompt).normalizations, []);
+  assert.ok(!calls.some((c) => c.fn === 'blueprint_complete_run'));
+  const f = calls.find((c) => c.fn === 'blueprint_fail_run');
+  assert.deepEqual(JSON.parse(f.args.p_prompt).normalizations, []);
+  failedOnlyEpistemically(f);
 });
 test('worker: wrong contract_version fails the run with no normalization', async () => {
   const o = replayOutput7f88(); o.contract_version = 'growth_blueprint/9';
