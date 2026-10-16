@@ -24,12 +24,22 @@ if (SKIP && process.env.MI08_REQUIRE_PG === '1') throw new Error('MI08_REQUIRE_P
 const t = (name, fn) => test(name, { skip: SKIP ? 'no local PostgreSQL (set MI08_PG_SOCK)' : false }, fn);
 if (!SKIP) after(() => dropAll());
 const quiet = { info() {}, error() {}, warn() {} };
-let dbn = 0; const db = (kind) => freshDb(`mi08_t${process.pid}_${++dbn}`, kind);
+// Test tariffs are fictional and go through the real server path: proposed as service_role, approved by Manuel.
+const TEST_PRICING = { pricing_version: 'test-fictional-2026-10', model: 'm', input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 };
+const proposePricing = (d, v = TEST_PRICING) => psql(d, `set role service_role;\nselect public.case_research_pricing_propose('${v.pricing_version}', '${v.model}', ${v.input_usd_per_mtok}, ${v.output_usd_per_mtok}, ${v.usd_per_search}, 'TEST-ONLY fictional tariffs');`);
+const approvePricing = (d, version = TEST_PRICING.pricing_version) => psql(d, `set request.jwt.claim.sub = '${MANUEL}';\nset role authenticated;\nselect public.case_research_pricing_approve('${version}', 'Aprobadas para pruebas.');`);
+// 'integration006' = migration + approved test tariffs; 'integration006-nopricing' = migration only (no tariffs approved).
+let dbn = 0; const db = (kind) => {
+  const d = freshDb(`mi08_t${process.pid}_${++dbn}`, kind === 'integration006-nopricing' ? 'integration006' : kind);
+  if (kind === 'integration006') { proposePricing(d); approvePricing(d); }
+  return d;
+};
 
-// ---------- fixtures (fictional .example domains, fictional pricing) ----------
+// ---------- fixtures (fictional .example domains; NO client pricing: tariffs are server-side) ----------
+// Worst case at the test tariffs: 20000*1/1e6 + 6000*5/1e6 + 1*0.01 = 0.06 USD <= 0.2 authorized.
 const BUDGET = (domains) => ({ budget_version: 'atlas_research_budget/0.2', max_searches: 1, searches_per_call: 1, max_fetches: 2, max_captures_per_page: 2,
   max_page_chars: 2000, max_input_tokens: 20000, max_output_tokens: 6000, max_seconds: 120,
-  pricing: { input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 }, max_estimated_cost_usd: 0.2, allowed_domains: domains, blocked_domains: [] });
+  max_estimated_cost_usd: 0.2, allowed_domains: domains, blocked_domains: [] });
 const SONRISA = 'https://sonrisa.example/';
 const DIRECTORY = 'https://guia-dental.example/clinicas/sonrisa';
 const RESEARCH_A = { prospect_url: SONRISA, seed_urls: [SONRISA, DIRECTORY], discovery: false, wait_minutes: 20, budget: BUDGET(['sonrisa.example', 'guia-dental.example']) };
@@ -113,7 +123,7 @@ t('ROLLBACK (no research data): exact baseline restored — functions, constrain
   const local = Object.fromEntries(qjson(d, `select p.proname, md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'`).map((r) => [r.proname, r.m]));
   assert.deepEqual(Object.keys(local).sort(), CATALOG_ACL.map((r) => r.proname).sort());
   for (const r of CATALOG_ACL) assert.equal(local[r.proname], r.md5, r.proname);
-  assert.equal(q(d, "select to_regclass('public.case_research_runs') is null and to_regclass('public.case_research_sources') is null"), 't');
+  assert.equal(q(d, "select to_regclass('public.case_research_runs') is null and to_regclass('public.case_research_sources') is null and to_regclass('public.case_research_pricing') is null"), 't');
   assert.equal(q(d, "select pg_get_constraintdef(oid) like '%RESEARCH%' from pg_constraint where conname = 'case_events_event_type_check'"), 'f');
 });
 t('ROLLBACK (with research data): operational baseline restored, research history preserved and inert', async () => {
@@ -204,11 +214,19 @@ t('SECURITY: Manuel reads research through RLS; another authenticated user sees 
   assert.equal(q(d, `set request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000aa';\nset role authenticated;\nselect count(*) from public.case_research_runs;`), '0');
   const o = await rpcClient(d, 'manuel').rpc('case_research_overview', { p_case_id: r.data.case_id });
   assert.equal(o.data.runs[0].budget.max_estimated_cost_usd, 0.2); assert.equal(o.data.limits.caps.max_estimated_cost_usd, 1);
+  assert.equal(o.data.limits.pricing_status, 'APPROVED'); assert.equal(o.data.limits.pricing.pricing_version, TEST_PRICING.pricing_version);
+  assert.equal(o.data.runs[0].pricing_version, TEST_PRICING.pricing_version);
+  assert.deepEqual(o.data.runs[0].pricing, { input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 });
 });
 const REJECTS = [
   ['budget above case cap', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), max_fetches: 9 } }, /CASE_RESEARCH_BUDGET_INVALID: .*max_fetches/],
   ['cost above case cap', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), max_estimated_cost_usd: 1.5 } }, /max_estimated_cost_usd > case cap/],
-  ['no pricing', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), pricing: null } }, /pricing is required/],
+  ['client pricing (cheaper tariffs)', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), pricing: { input_usd_per_mtok: 0.001, output_usd_per_mtok: 0.001, usd_per_search: 0 } } }, /CLIENT_PRICING_REJECTED/],
+  ['client pricing (equal to the approved tariffs)', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), pricing: { input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 } } }, /CLIENT_PRICING_REJECTED/],
+  ['client pricing null', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), pricing: null } }, /CLIENT_PRICING_REJECTED/],
+  ['client pricing_version', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), pricing_version: 'cheap-v0' } }, /CLIENT_PRICING_REJECTED/],
+  ['client pricing at request level', { pricing: { input_usd_per_mtok: 0.001 } }, /REQUEST_UNKNOWN_FIELD/],
+  ['worst case above the authorized max', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), max_estimated_cost_usd: 0.05 } }, /BUDGET_EXCEEDS_AUTHORIZED_MAX: worst case 0\.0600 USD at tariffs test-fictional-2026-10/],
   ['allowed domain not explicit', { budget: BUDGET(['sonrisa.example', 'guia-dental.example', 'otro.example']) }, /allowed_domains must be exactly/],
   ['seed domain missing from budget', { budget: BUDGET(['sonrisa.example']) }, /allowed_domains must be exactly/],
   ['unknown budget field', { budget: { ...BUDGET(['sonrisa.example', 'guia-dental.example']), max_pages: 3 } }, /unknown budget field/],
@@ -235,7 +253,7 @@ t('BUDGET: daily authorized ceiling and one open run per case are enforced', asy
   const d = db('integration006');
   const big = { ...RESEARCH_A, budget: { ...RESEARCH_A.budget, max_estimated_cost_usd: 1.0 } };
   for (let i = 0; i < 5; i++) assert.equal((await submitResearch(d, big)).error, null);
-  assert.match((await submitResearch(d, { ...RESEARCH_A, budget: { ...RESEARCH_A.budget, max_estimated_cost_usd: 0.01 } })).error.message, /DAILY_BUDGET_EXCEEDED/);
+  assert.match((await submitResearch(d, { ...RESEARCH_A, budget: { ...RESEARCH_A.budget, max_estimated_cost_usd: 0.1 } })).error.message, /DAILY_BUDGET_EXCEEDED/);
   const d2 = db('integration006'); const caseId = await toGrowthApproved(d2);
   const req = { prospect_url: 'https://despacho-ejemplo.example/', discovery: true, budget: BUDGET(['despacho-ejemplo.example']) };
   const m = rpcClient(d2, 'manuel');
@@ -348,11 +366,14 @@ t('RECORD/COMPLETE: one-shot recording; manifest must match counts, stage, domai
   const d = db('integration006'); const { svc, claim } = await runningRun(d);
   assert.equal((await svc.rpc('case_research_record_sources', { p_run_id: claim.run_id, p_sources: [goodSource(claim.case_id)] })).error, null);
   assert.match((await svc.rpc('case_research_record_sources', { p_run_id: claim.run_id, p_sources: [goodSource(claim.case_id, { source_key: 'S2' })] })).error.message, /ALREADY_RECORDED/);
-  const man = { case_id: claim.case_id, stage: 'A_ONLY', stage_b: 'NOT_RUN', prospect_domain: 'sonrisa.example', counts: { sources: 1, verified: 1 },
-    budget_diagnostics: { totals: { estimated_cost_usd: 0.01, engine_fetches: 1 } } };
+  // 5000 in x 1 + 1000 out x 5 (per Mtok) + 0 searches = 0.01 USD at the run's server tariffs.
+  const T = (o = {}) => ({ budget_diagnostics: { totals: { input_tokens: 5000, output_tokens: 1000, web_search_requests: 0, estimated_cost_usd: 0.01, engine_fetches: 1, ...o } } });
+  const man = { case_id: claim.case_id, stage: 'A_ONLY', stage_b: 'NOT_RUN', prospect_domain: 'sonrisa.example', counts: { sources: 1, verified: 1 }, ...T() };
   for (const [bad, re] of [[{ stage_b: 'RAN' }, /MANIFEST_MISMATCH/], [{ counts: { sources: 2, verified: 1 } }, /COUNTS_MISMATCH/],
-    [{ budget_diagnostics: { totals: { estimated_cost_usd: 0.5, engine_fetches: 1 } } }, /COST_NOT_WITHIN/], [{ budget_diagnostics: { totals: { estimated_cost_usd: null, engine_fetches: 1 } } }, /COST_NOT_WITHIN/],
-    [{ budget_diagnostics: { totals: { estimated_cost_usd: 0.01, engine_fetches: 5 } } }, /FETCHES_NOT_WITHIN/]]) {
+    [T({ estimated_cost_usd: 0.5 }), /COST_MISMATCH: reported 0\.5 USD, server-computed 0\.0100 USD/], [T({ estimated_cost_usd: null }), /COST_NOT_WITHIN/],
+    [T({ estimated_cost_usd: 0.001 }), /COST_MISMATCH/], // under-reporting the cost is refused too
+    [T({ input_tokens: 25000, estimated_cost_usd: 0.03 }), /USAGE_NOT_WITHIN_BUDGET/], [T({ web_search_requests: 2, estimated_cost_usd: 0.03 }), /USAGE_NOT_WITHIN_BUDGET/],
+    [T({ input_tokens: undefined }), /USAGE_REQUIRED/], [T({ engine_fetches: 5 }), /FETCHES_NOT_WITHIN/]]) {
     assert.match((await svc.rpc('case_research_complete_run', { p_run_id: claim.run_id, p_manifest: { ...man, ...bad } })).error.message, re);
   }
   assert.equal((await svc.rpc('case_research_complete_run', { p_run_id: claim.run_id, p_manifest: man })).error, null);
@@ -450,4 +471,106 @@ t('IMMUTABILITY: terminal runs cannot be revived and sources cannot be edited, e
   const d2 = db('integration006'); const { svc, claim } = await runningRun(d2);
   await svc.rpc('case_research_record_sources', { p_run_id: claim.run_id, p_sources: [goodSource(claim.case_id)] });
   assert.throws(() => q(d2, `set agency_os.case_research = 'on';\nupdate public.case_research_sources set may_support_fact = true, excerpt = 'otro texto distinto';`), /CASE_RESEARCH_SOURCES_IMMUTABLE/);
+});
+
+// ======================= 9. Server-side research pricing =======================
+t('PRICING: with no approved tariffs no research can be authorized (pre-RADAR or enrichment); nothing is created', async () => {
+  const d = db('integration006-nopricing'); const m = rpcClient(d, 'manuel');
+  let lim = (await m.rpc('case_research_limits')).data;
+  assert.deepEqual([lim.pricing_status, lim.pricing, lim.pricing_pending, lim.pricing_policy], ['NOT_APPROVED', null, [], 'SERVER_APPROVED_ONLY']);
+  assert.match((await submitResearch(d)).error.message, /CASE_RESEARCH_PRICING_NOT_APPROVED/);
+  assert.equal(q(d, 'select count(*) from public.cases'), '0');
+  const caseId = await toGrowthApproved(d);
+  assert.match((await m.rpc('case_research_authorize', { p_case_id: caseId, p_research: { prospect_url: 'https://despacho-ejemplo.example/', budget: BUDGET(['despacho-ejemplo.example']) }, p_rationale: 'x' })).error.message, /PRICING_NOT_APPROVED/);
+  // proposed but not approved: still refused; the proposal is visible for review
+  proposePricing(d);
+  lim = (await m.rpc('case_research_limits')).data;
+  assert.equal(lim.pricing_status, 'NOT_APPROVED'); assert.equal(lim.pricing_pending[0].pricing_version, TEST_PRICING.pricing_version);
+  assert.match((await submitResearch(d)).error.message, /PRICING_NOT_APPROVED/);
+  assert.equal(q(d, 'select count(*) from public.case_research_runs'), '0');
+  approvePricing(d);
+  lim = (await m.rpc('case_research_limits')).data;
+  assert.deepEqual([lim.pricing_status, lim.pricing.pricing_version, lim.pricing.model, lim.pricing.input_usd_per_mtok, lim.pricing.approved_by, lim.pricing_pending],
+    ['APPROVED', TEST_PRICING.pricing_version, 'm', 1, `user:${MANUEL}`, []]);
+  assert.equal((await submitResearch(d)).error, null);
+});
+
+t('PRICING: only the server proposes tariffs, only Manuel approves; the table is unreachable for clients and immutable', async () => {
+  const d = db('integration006-nopricing');
+  const args = { p_pricing_version: 'v1', p_model: 'm', p_input_usd_per_mtok: 1, p_output_usd_per_mtok: 5, p_usd_per_search: 0.01, p_source_note: 'x' };
+  for (const as of ['manuel', 'other', 'anon', 'authenticated-anon']) assert.match((await rpcClient(d, as).rpc('case_research_pricing_propose', args)).error.message, /permission denied/, as);
+  assert.equal((await rpcClient(d, 'service').rpc('case_research_pricing_propose', args)).error, null);
+  assert.match((await rpcClient(d, 'service').rpc('case_research_pricing_propose', args)).error.message, /PRICING_VERSION_EXISTS/);
+  assert.match((await rpcClient(d, 'service').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: 'x' })).error.message, /CASE_RESEARCH_AUTH_REQUIRED/);
+  assert.match((await rpcClient(d, 'other').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: 'x' })).error.message, /CASE_RESEARCH_NOT_AUTHORIZED/);
+  assert.match((await rpcClient(d, 'anon').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: 'x' })).error.message, /permission denied/);
+  assert.match((await rpcClient(d, 'manuel').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: ' ' })).error.message, /RATIONALE_REQUIRED/);
+  assert.equal((await rpcClient(d, 'manuel').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: 'Tarifas revisadas.' })).error, null);
+  assert.match((await rpcClient(d, 'manuel').rpc('case_research_pricing_approve', { p_pricing_version: 'v1', p_rationale: 'otra vez' })).error.message, /NOT_PROPOSED: APPROVED/);
+  for (const [as, pre] of [['manuel', `set request.jwt.claim.sub = '${MANUEL}';\nset role authenticated;\n`], ['service', 'set role service_role;\n'], ['anon', 'set role anon;\n']]) {
+    assert.throws(() => psql(d, `${pre}select * from public.case_research_pricing;`), /permission denied/, `${as} select`);
+    assert.throws(() => psql(d, `${pre}update public.case_research_pricing set input_usd_per_mtok = 0.001;`), /permission denied/, `${as} update`);
+    assert.throws(() => psql(d, `${pre}insert into public.case_research_pricing (pricing_version, model, input_usd_per_mtok, output_usd_per_mtok, usd_per_search, source_note, proposed_by) values ('x','m',1,1,1,'n','p');`), /permission denied/, `${as} insert`);
+  }
+  // even the table owner: no writes outside the RPCs, values immutable, no deletes
+  assert.throws(() => q(d, `update public.case_research_pricing set input_usd_per_mtok = 0.001`), /PRICING_ONLY_VIA_RPC/);
+  assert.throws(() => q(d, `set agency_os.case_research_pricing = 'on';\nupdate public.case_research_pricing set input_usd_per_mtok = 0.001`), /PRICING_IMMUTABLE/);
+  assert.throws(() => q(d, `set agency_os.case_research_pricing = 'on';\nupdate public.case_research_pricing set status = 'PROPOSED'`), /PRICING_IMMUTABLE|INVALID_TRANSITION/);
+  assert.throws(() => q(d, `delete from public.case_research_pricing`), /PRICING_APPEND_ONLY/);
+});
+
+t('PRICING: invalid tariff proposals are refused (zero, negative, missing, absurd, malformed version or model)', async () => {
+  const d = db('integration006-nopricing'); const svc = rpcClient(d, 'service');
+  const ok = { p_pricing_version: 'v1', p_model: 'm', p_input_usd_per_mtok: 1, p_output_usd_per_mtok: 5, p_usd_per_search: 0.01, p_source_note: 'x' };
+  for (const bad of [{ p_input_usd_per_mtok: 0 }, { p_output_usd_per_mtok: -1 }, { p_usd_per_search: 0 }, { p_usd_per_search: null }, { p_input_usd_per_mtok: 5000 },
+    { p_pricing_version: 'bad version!' }, { p_model: ' m' }, { p_source_note: ' ' }]) {
+    assert.match((await svc.rpc('case_research_pricing_propose', { ...ok, ...bad })).error.message, /CASE_RESEARCH_PRICING_INVALID/, JSON.stringify(bad));
+  }
+  assert.equal(q(d, 'select count(*) from public.case_research_pricing'), '0');
+});
+
+t('PRICING: the run is priced and recorded server-side; the worker receives the server tariffs and their version', async () => {
+  const d = db('integration006'); const s = await submitResearch(d); assert.equal(s.error, null, s.error?.message);
+  const run = qjson(d, `select pricing_version, budget->'pricing' p, max_estimated_cost_usd m from public.case_research_runs`)[0];
+  assert.deepEqual(run, { pricing_version: TEST_PRICING.pricing_version, p: { input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 }, m: 0.2 });
+  const ev = qjson(d, `select payload->>'pricing_version' v, payload->'worst_case_cost_usd' w, payload->'budget'->'pricing' p from public.case_events where event_type = 'RESEARCH_REQUESTED'`)[0];
+  assert.deepEqual(ev, { v: TEST_PRICING.pricing_version, w: 0.06, p: { input_usd_per_mtok: 1, output_usd_per_mtok: 5, usd_per_search: 0.01 } });
+  const svc = rpcClient(d, 'service');
+  assert.equal((await svc.rpc('case_research_claim_next', { p_model: 'other-model' })).data, null, 'tariffs are bound to the model they price');
+  const c = (await svc.rpc('case_research_claim_next', { p_model: 'm' })).data;
+  assert.equal(c.pricing_version, TEST_PRICING.pricing_version); assert.deepEqual(c.budget.pricing, run.p);
+  proposePricing(d, { ...TEST_PRICING, pricing_version: 'cheap-v0', input_usd_per_mtok: 0.001 }); // an existing version: only immutability can refuse the swap
+  assert.throws(() => q(d, `set agency_os.case_research = 'on';\nupdate public.case_research_runs set pricing_version = 'cheap-v0'`), /AUTHORIZATION_IMMUTABLE/);
+  assert.throws(() => q(d, `set agency_os.case_research = 'on';\nupdate public.case_research_runs set budget = jsonb_set(budget, '{pricing,input_usd_per_mtok}', '0.001')`), /AUTHORIZATION_IMMUTABLE/);
+});
+
+t('PRICING: a new approved version supersedes the old one; queued runs priced with a retired version are never claimed', async () => {
+  const d = db('integration006'); const svc = rpcClient(d, 'service'); const m = rpcClient(d, 'manuel');
+  const a = await submitResearch(d); assert.equal(a.error, null);
+  const V2 = { ...TEST_PRICING, pricing_version: 'test-fictional-2026-11', input_usd_per_mtok: 2 };
+  proposePricing(d, V2); approvePricing(d, V2.pricing_version);
+  assert.deepEqual(qjson(d, 'select pricing_version, status from public.case_research_pricing order by pricing_version'),
+    [{ pricing_version: TEST_PRICING.pricing_version, status: 'RETIRED' }, { pricing_version: V2.pricing_version, status: 'APPROVED' }]);
+  assert.equal(q(d, `select budget->'pricing'->>'input_usd_per_mtok' from public.case_research_runs where id = '${a.data.research_run_id}'`), '1', 'authorized runs keep their tariffs');
+  assert.equal((await svc.rpc('case_research_claim_next', { p_model: 'm' })).data, null, 'retired tariffs: the queued run waits only until its deadline');
+  const b = await submitResearch(d, RESEARCH_A, { p_signal: 'otra señal' }); assert.equal(b.error, null, b.error?.message);
+  assert.equal(q(d, `select pricing_version || ':' || (budget->'pricing'->>'input_usd_per_mtok') from public.case_research_runs where id = '${b.data.research_run_id}'`), `${V2.pricing_version}:2`);
+  assert.equal((await svc.rpc('case_research_claim_next', { p_model: 'm' })).data.run_id, b.data.research_run_id);
+  // kill switch: retiring the approved version blocks new research immediately
+  assert.match((await rpcClient(d, 'other').rpc('case_research_pricing_retire', { p_pricing_version: V2.pricing_version, p_rationale: 'x' })).error.message, /NOT_AUTHORIZED/);
+  assert.equal((await m.rpc('case_research_pricing_retire', { p_pricing_version: V2.pricing_version, p_rationale: 'Tarifas en revisión.' })).error, null);
+  assert.match((await submitResearch(d)).error.message, /PRICING_NOT_APPROVED/);
+  assert.equal((await m.rpc('case_research_limits')).data.pricing_status, 'NOT_APPROVED');
+});
+
+t('PRICING: the end-to-end worker run completes with the server-computed cost and records the tariff version', async () => {
+  const d = db('integration006'); const svc = rpcClient(d, 'service');
+  const s = await submitResearch(d); assert.equal(s.error, null);
+  const rw = createCaseResearchWorker({ supabase: svc, anthropic: researchModel(), model: 'm', engineFetch: fakeFetch(), log: quiet });
+  await tick(rw); assert.equal(rw.status.runs_completed, 1, rw.status.last_error);
+  const run = qjson(d, `select status, manifest->'budget_diagnostics'->'totals' t from public.case_research_runs`)[0];
+  const ev = qjson(d, `select payload from public.case_events where event_type = 'RESEARCH_COMPLETED'`)[0].payload;
+  const expected = Math.round((run.t.input_tokens * 1 / 1e6 + run.t.output_tokens * 5 / 1e6 + run.t.web_search_requests * 0.01) * 1e4) / 1e4;
+  assert.equal(run.status, 'COMPLETED'); assert.equal(ev.estimated_cost_usd, expected); assert.equal(ev.pricing_version, TEST_PRICING.pricing_version);
+  assert.ok(ev.estimated_cost_usd <= 0.2);
 });

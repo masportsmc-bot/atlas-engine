@@ -48,7 +48,15 @@ Todas las RPC de Manuel comprueban `agency_os_is_manuel()`. Las del worker son e
 **Campos de `p_research`** (no se admiten otros):
 - `prospect_url`: obligatorio, http(s) público. Su dominio debe coincidir con la web del prospecto si esta consta.
 - `seed_urls`: hasta 3 URLs públicas; cada dominio queda permitido de forma explícita.
-- `budget`: presupuesto `atlas_research_budget/0.2` completo, con `pricing`. `allowed_domains` debe ser exactamente el dominio del prospecto más los de las semillas.
+- `budget`: presupuesto `atlas_research_budget/0.2` **sin** `pricing` ni `pricing_version` (si vienen, se rechaza con `CASE_RESEARCH_CLIENT_PRICING_REJECTED`). `allowed_domains` debe ser exactamente el dominio del prospecto más los de las semillas.
+
+### Tarifas en el servidor (corrección del 15-10-2026)
+- Las tarifas viven solo en `case_research_pricing`. Una versión la propone el servidor con `case_research_pricing_propose` (solo `service_role`) y la aprueba Manuel con `case_research_pricing_approve`. Es inmutable y solo puede haber una aprobada a la vez.
+- Sin versión aprobada no se puede autorizar ninguna investigación (`CASE_RESEARCH_PRICING_NOT_APPROVED`). La migración no trae ninguna: hay que proponer y aprobar las tarifas reales antes del piloto.
+- `case_research_create_run` añade al presupuesto las tarifas aprobadas y guarda `pricing_version` en el run y en `RESEARCH_REQUESTED`. Rechaza el presupuesto si su peor caso (todos los topes de tokens y búsquedas agotados) supera `max_estimated_cost_usd`.
+- `case_research_claim_next` solo reclama runs cuya versión sigue aprobada y corresponde al modelo del worker. Retirar la versión (`case_research_pricing_retire`) detiene también los runs en cola.
+- `case_research_complete_run` recalcula el coste con el uso declarado y las tarifas del run. Rechaza un uso por encima de los topes o un coste declarado distinto del calculado.
+- `case_research_limits()` muestra el estado (`APPROVED` o `NOT_APPROVED`), la versión aprobada y las propuestas pendientes.
 - `wait_minutes`: entre 5 y 60; 20 por defecto. Debe superar `max_seconds` en al menos 60 s.
 - `discovery`: booleano; `true` por defecto.
 

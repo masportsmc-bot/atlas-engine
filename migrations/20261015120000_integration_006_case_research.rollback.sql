@@ -242,16 +242,22 @@ begin
   drop function if exists public.case_research_url_error(p_url text);
   drop function if exists public.case_research_registrable_domain(p_url text);
   drop function if exists public.case_research_limits();
+  drop function if exists public.case_research_pricing_retire(p_pricing_version text, p_rationale text);
+  drop function if exists public.case_research_pricing_approve(p_pricing_version text, p_rationale text);
+  drop function if exists public.case_research_pricing_propose(p_pricing_version text, p_model text, p_input_usd_per_mtok numeric, p_output_usd_per_mtok numeric, p_usd_per_search numeric, p_source_note text);
+  drop function if exists public.case_research_static_limits();
   v_has_data := exists (select 1 from public.case_events where event_type like 'RESEARCH_%');
   if not v_has_data and to_regclass('public.case_research_runs') is not null then
     execute 'select exists (select 1 from public.case_research_runs)' into v_has_data;
   end if;
   if v_has_data then
-    raise notice 'MI08_006_ROLLBACK: research data exists -> tables and event vocabulary preserved (inert, read-only for Manuel).';
+    raise notice 'MI08_006_ROLLBACK: research data exists -> tables (pricing included) and event vocabulary preserved (inert).';
   else
     drop table if exists public.case_research_sources;
     drop table if exists public.case_research_runs;
+    drop table if exists public.case_research_pricing;
     drop function if exists public.case_research_runs_guard();
+    drop function if exists public.case_research_pricing_guard();
     drop function if exists public.case_research_sources_guard();
     alter table public.case_events drop constraint case_events_event_type_check;
     alter table public.case_events add constraint case_events_event_type_check CHECK ((event_type = ANY (ARRAY['SIGNAL_RECEIVED'::text, 'CONTEXT_ADDED'::text, 'RUN_STARTED'::text, 'RUN_COMPLETED'::text, 'RUN_FAILED'::text, 'GATE_OPENED'::text, 'DECISION_RECORDED'::text, 'INFO_REQUESTED'::text, 'HOLD_SET'::text, 'STATUS_CHANGED'::text, 'RETRY_AUTHORIZED'::text, 'BLUEPRINT_AUTHORIZED'::text, 'ACTION_PACK_AUTHORIZED'::text])));
