@@ -37,27 +37,55 @@ export function subjectDomain(bundle) {
   const w = bundle?.prospect?.website ?? bundle?.prospect?.url ?? bundle?.organization?.website ?? null;
   return registrableDomain(w);
 }
+/** Every domain that belongs to the subject: its website plus the prospect domain of each research run (INTEGRATION 006). */
+export function subjectDomains(bundle) {
+  const out = new Set();
+  const d = subjectDomain(bundle); if (d) out.add(d);
+  for (const r of Array.isArray(bundle?.research_runs) ? bundle.research_runs : []) {
+    const x = registrableDomain(r?.prospect_domain ?? null); if (x) out.add(x);
+  }
+  return out;
+}
 
-/** Index of research sources by every key an evidence source_ref may use. */
+/** Index of research sources by every key an evidence source_ref may use. A key may resolve to several sources
+ * (e.g. the same URL captured by two runs); evidenceLevel then picks the one whose excerpt the evidence carries. */
 export function researchIndex(bundle) {
   const idx = new Map();
   for (const s of Array.isArray(bundle?.research_sources) ? bundle.research_sources : []) {
     if (!s || typeof s !== 'object') continue;
-    for (const k of [s.source_key, s.source_id, s.url, s.final_url]) if (typeof k === 'string' && k) idx.set(k, s);
+    for (const k of new Set([s.source_key, s.source_id, s.url, s.final_url])) {
+      if (typeof k === 'string' && k) idx.set(k, [...(idx.get(k) ?? []), s]);
+    }
   }
   return idx;
 }
+const candidatesFor = (index, ref) => {
+  const v = typeof ref === 'string' ? index.get(ref) : undefined;
+  return v === undefined ? [] : (Array.isArray(v) ? v : [v]);
+};
+/** True when source_ref resolves to at least one research source of the bundle. */
+export const resolvesToResearch = (ref, index) => candidatesFor(index, ref).length > 0;
 export function sourceIsVerified(s) {
   return s?.excerpt_verified === true && s?.may_support_fact !== false && VERIFYING_METHODS.includes(s?.verification_method)
     && typeof s?.excerpt === 'string' && s.excerpt.trim().length > 0;
 }
-export function sourceIsSelfPublished(s, subjDomain) {
-  const d = s?.registrable_domain ?? registrableDomain(s?.final_url ?? s?.url);
-  return SELF_SOURCE_TYPES.has(s?.source_type) || (subjDomain != null && d === subjDomain);
+export function sourceIsSelfPublished(s, subj) {
+  const own = subj instanceof Set ? subj : new Set(Array.isArray(subj) ? subj : (subj != null ? [subj] : []));
+  const doms = [s?.registrable_domain, registrableDomain(s?.final_url ?? null), registrableDomain(s?.url ?? null)].filter(Boolean);
+  return s?.self_published === true || SELF_SOURCE_TYPES.has(s?.source_type) || doms.some((d) => own.has(d));
 }
 /** Verified excerpts (for numeric traceability of research-backed evidence). */
 export function verifiedExcerpts(bundle) {
   return (Array.isArray(bundle?.research_sources) ? bundle.research_sources : []).filter(sourceIsVerified).map((s) => s.excerpt);
+}
+
+/** Level of an evidence item that declares provided_by RESEARCH: a research claim whose source is not in the bundle
+ * can never be re-verified, so it is UNCONFIRMED (never OBSERVED). Other items: evidenceLevel. */
+export function declaredEvidenceLevel(e, index, subj) {
+  if (e?.provided_by === 'RESEARCH' && !resolvesToResearch(e?.source_ref, index)) {
+    return { level: LEVEL.UNCONFIRMED, source: null, self: false, group: null, issue: 'RESEARCH_SOURCE_MISSING' };
+  }
+  return evidenceLevel(e, index, subj);
 }
 
 /**
@@ -65,7 +93,9 @@ export function verifiedExcerpts(bundle) {
  * @returns {{ level, source: object|null, self: boolean, group: string|null, issue: null|'EXCERPT_MISMATCH'|'UNCONFIRMED_LEAD' }}
  */
 export function evidenceLevel(e, index, subjDomain) {
-  const s = typeof e?.source_ref === 'string' ? index.get(e.source_ref) : undefined;
+  const cands = candidatesFor(index, e?.source_ref);
+  const content = normalizeText(e?.content);
+  const s = cands.find((c) => sourceIsVerified(c) && content.includes(normalizeText(c.excerpt))) ?? cands.find(sourceIsVerified) ?? cands[0];
   if (!s) return { level: LEVEL.OBSERVED, source: null, self: false, group: null, issue: null };
   if (!sourceIsVerified(s)) return { level: LEVEL.UNCONFIRMED, source: s, self: false, group: null, issue: 'UNCONFIRMED_LEAD' };
   // The evidence must carry the verified excerpt verbatim (normalised): citing a verified page does not verify a paraphrase.

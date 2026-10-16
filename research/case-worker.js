@@ -1,8 +1,8 @@
-// MI08 / Agency OS — case research worker (INTEGRATION 003, latent code; NOT wired to server.js).
+// MI08 / Agency OS — case research worker (INTEGRATION 003; wired to server.js in INTEGRATION 006 through research/case-wiring.js).
 // OFF unless ATLAS_CASE_RESEARCH_WORKER_ENABLED=true. A separate flag from VS003's mission worker
 // (ATLAS_RESEARCH_WORKER_ENABLED) so enabling one can never start the other.
-// The database (future case_research_* RPCs, not yet created anywhere) owns authorization, budget acceptance,
-// one-open-run-per-case and the stuck-run sweep. This worker only: claim -> Stage A -> record sources -> complete,
+// The database (case_research_* RPCs of migration 20261015120000_integration_006_case_research.sql) owns authorization,
+// budget acceptance, one-open-run-per-case, the run deadline (expiry works even with this worker OFF) and source checks. This worker only: claim -> Stage A -> record sources -> complete,
 // or fail_run with diagnostics. It never records sources for a failed run and never calls any other RPC.
 import { runCaseResearch } from './case-adapter.js';
 import { CaseResearchError } from './case-spec.js';
@@ -27,7 +27,8 @@ export function createCaseResearchWorker({ supabase, anthropic, model, engineFet
     try {
       // The claim must carry the human-authorized, DB-accepted budget; absence fails closed before any model call.
       const out = await runCaseResearch({ caseId: claim.case_id, prospectName: claim.prospect_name, prospectUrl: claim.prospect_url,
-        context: claim.context ?? [], budget: claim.budget ?? null, spec: claim.research_spec ?? null, anthropic, model, engineFetch });
+        context: claim.context ?? [], budget: claim.budget ?? null, spec: claim.research_spec ?? null, anthropic, model, engineFetch,
+        seedUrls: claim.seed_urls ?? [], discovery: claim.discovery !== false, deadlineAt: claim.deadline_at ?? null });
       await rpc(CASE_RESEARCH_RPCS.record, { p_run_id: runId, p_sources: out.sources });
       await rpc(CASE_RESEARCH_RPCS.complete, { p_run_id: runId, p_manifest: out.manifest });
       status.runs_completed += 1; status.last_outcome = `COMPLETED ${runId} (${out.manifest.counts.verified} verified / ${out.manifest.counts.sources} sources)`;

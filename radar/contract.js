@@ -18,7 +18,8 @@ const obj = (properties, required = Object.keys(properties)) => ({
 });
 
 export const SUBJECT_KINDS = ['COMPANY', 'PERSON', 'MARKET', 'INTERNAL', 'UNKNOWN'];
-export const PROVIDED_BY = ['SIGNAL', 'MANUEL', 'CONTEXT', 'AGENCY_OS_RECORD'];
+// RESEARCH (INTEGRATION 006): a source of input_bundle.research_sources, cited by source_ref = its source_id.
+export const PROVIDED_BY = ['SIGNAL', 'MANUEL', 'CONTEXT', 'AGENCY_OS_RECORD', 'RESEARCH'];
 export const MATERIALITY = ['DECISION_CRITICAL', 'USEFUL', 'NOT_MATERIAL'];
 export const RESOLVABLE_BY = ['MANUEL', 'PROSPECT', 'GATED_RESEARCH', 'UNRESOLVABLE'];
 export const STRENGTH = ['ESTABLISHED', 'TENTATIVE'];

@@ -1,0 +1,170 @@
+[
+ {
+  "proname": "action_pack_authorize_retry",
+  "args_types": "p_case_id uuid, p_rationale text",
+  "md5": "1b293034f131b6b078781091668c26ac",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "action_pack_claim_next",
+  "args_types": "p_model text",
+  "md5": "95414eb38b65ddb045403512d521b077",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "action_pack_complete_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_output jsonb",
+  "md5": "b89f60d76ee63fc02fc9840ba5e034d3",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "action_pack_fail_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_error text, p_raw jsonb",
+  "md5": "af700bc345ef74a70fc931abee3c3351",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "action_pack_snapshot_error",
+  "args_types": "p jsonb",
+  "md5": "fd078fbcf088a42203dc9d985c46bb0e",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "add_case_context",
+  "args_types": "p_case_id uuid, p_content text, p_answers jsonb",
+  "md5": "968010427093eee6890b11e9c32bdc37",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "agency_os_is_manuel",
+  "args_types": "",
+  "md5": "42a675d142d01da168d271c933d73850",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "agency_os_whoami",
+  "args_types": "",
+  "md5": "c34f2dff81791f0466119a7270734fa5",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "blueprint_authorize_run",
+  "args_types": "p_case_id uuid, p_rationale text",
+  "md5": "fefcdda421b13a9df092501cb01076a7",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "blueprint_claim_next",
+  "args_types": "p_model text",
+  "md5": "0d18b9841f883fdf9afab074b7148700",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "blueprint_complete_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_output jsonb",
+  "md5": "c9b98a0f50eeec3731712b7553af65f8",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "blueprint_fail_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_error text, p_raw jsonb",
+  "md5": "b2c7fb73bb07ac24b6668c578fbe8d09",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "case_events_append_only",
+  "args_types": "",
+  "md5": "3091d9cdd28b3f89c471251add3803ff",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "case_events_human_attribution_guard",
+  "args_types": "",
+  "md5": "1b944b2450743651ba81323b651000fd",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "cases_decision_outcome_guard",
+  "args_types": "",
+  "md5": "602e7855449b91face17fa98d5ddfbc3",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "cases_enforce_status_machine",
+  "args_types": "",
+  "md5": "3ebba3f340b6306eb4d439aa0073672c",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "cases_legacy_frozen",
+  "args_types": "",
+  "md5": "97453d2c5f61d44c81fb691ca8a92137",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "cases_protect_discovery_signal",
+  "args_types": "",
+  "md5": "3f0eb47c4dc50f7f34d5debcbc8db329",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "growth_blueprint_snapshot_error",
+  "args_types": "p jsonb",
+  "md5": "78b95a62dc75990a633b7d9ec55ce07b",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "radar_authorize_retry",
+  "args_types": "p_case_id uuid, p_rationale text",
+  "md5": "39b79fab84c2de60b99a9beea4dd888f",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "radar_claim_next",
+  "args_types": "p_model text",
+  "md5": "040f2f6c77767cad0b238f8670ea3223",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "radar_complete_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_output jsonb",
+  "md5": "455ca89ac3b378ac3cd03cac23449c29",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "radar_fail_run",
+  "args_types": "p_run_id uuid, p_prompt text, p_error text, p_raw jsonb",
+  "md5": "9190298d907aa77703467259650bd60a",
+  "acl": "postgres=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "record_decision",
+  "args_types": "p_review_item_id uuid, p_decision text, p_rationale text, p_details jsonb",
+  "md5": "9fe58aa2cc9af36d7dffb97fbeac016f",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "record_outreach_decision",
+  "args_types": "p_review_item_id uuid, p_decision text, p_rationale text, p_details jsonb",
+  "md5": "cbead2ccac42afc5851e95b324e5438b",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "review_items_guard",
+  "args_types": "",
+  "md5": "9df02fe6143a46384ff34908cac88013",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "set_updated_at",
+  "args_types": "",
+  "md5": "4849c0b4d71185107e4477272c54f5d8",
+  "acl": "=X/postgres postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres"
+ },
+ {
+  "proname": "submit_signal",
+  "args_types": "p_signal text, p_source_type text, p_organization_id uuid, p_prospect jsonb, p_context text",
+  "md5": "82fa235e170ecedc7cf6aeaf33901aee",
+  "acl": "postgres=X/postgres authenticated=X/postgres service_role=X/postgres"
+ }
+]

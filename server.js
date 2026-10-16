@@ -8,6 +8,7 @@ import { BLUEPRINT_CONTRACT_VERSION } from './blueprint/contract.js';
 import { BLUEPRINT_TEMPLATE_VERSION } from './blueprint/prompt.js';
 import { CONTRACT_VERSION } from './radar/contract.js';
 import { TEMPLATE_VERSION } from './radar/prompt.js';
+import { wireCaseResearchWorker } from './research/case-wiring.js';
 
 // Agency OS engine — Growth Vertical Slice 001 (RADAR_CORE only).
 // The legacy POST /generate endpoint (hardcoded confidence, OPEN status) has been retired.
@@ -38,6 +39,10 @@ const BLUEPRINT_MODEL = (process.env.BLUEPRINT_MODEL || MODEL).trim();
 const blueprintWorker = BLUEPRINT_ENABLED
   ? createBlueprintWorker({ supabase, anthropic, model: BLUEPRINT_MODEL, pollIntervalMs: POLL_INTERVAL_MS })
   : null;
+// Case research worker (MI08 INTEGRATION 006): OFF unless ATLAS_CASE_RESEARCH_WORKER_ENABLED=true (apply the DB migration
+// first). Even when enabled it only processes research runs Manuel authorized with an explicit budget; the database expires
+// overdue runs on its own, so RADAR / Blueprint never wait beyond the authorized window when this worker is off.
+const caseResearch = wireCaseResearchWorker({ env: process.env, supabase, anthropic, defaultModel: MODEL, pollIntervalMs: POLL_INTERVAL_MS });
 
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -52,6 +57,7 @@ const server = http.createServer((req, res) => {
       blueprint_contract_version: BLUEPRINT_CONTRACT_VERSION,
       blueprint_template_version: BLUEPRINT_TEMPLATE_VERSION,
       blueprint_worker: blueprintWorker ? blueprintWorker.status : { enabled: false },
+      case_research_worker: caseResearch.status,
     }));
     return;
   }
@@ -64,6 +70,7 @@ server.listen(PORT, () => {
   console.log(`Agency OS engine listening on ${PORT} (RADAR_CORE ${CONTRACT_VERSION}, model ${MODEL})`);
   worker.start();
   if (blueprintWorker) blueprintWorker.start();
+  if (caseResearch.worker) caseResearch.worker.start();
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {
@@ -71,6 +78,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     console.log(`${sig} received: stopping worker`);
     worker.stop();
     if (blueprintWorker) blueprintWorker.stop();
+    if (caseResearch.worker) caseResearch.worker.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 10000).unref();
   });

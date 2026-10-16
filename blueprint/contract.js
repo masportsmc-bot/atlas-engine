@@ -18,7 +18,8 @@ export const ENGINES = ['GROWTH', 'FACTORY', 'PRODUCT'];
 export const STRENGTH = ['ESTABLISHED', 'TENTATIVE'];
 export const EPISTEMIC_CLASS = ['FACT', 'INFERENCE', 'HYPOTHESIS'];
 export const GUIDANCE_SOURCE = ['RADAR_DECISION', 'COMMERCIAL_MODIFICATION'];
-export const EVIDENCE_PROVIDER = ['MANUEL', 'CONTEXT'];
+// RESEARCH (INTEGRATION 006): a source of input_bundle.research_sources, cited by source_ref = its source_id.
+export const EVIDENCE_PROVIDER = ['MANUEL', 'CONTEXT', 'RESEARCH'];
 // Demonstration CONCEPTS only. There is deliberately no "built"/"implemented" format: FACTORY does not execute here.
 export const DEMO_FORMATS = ['PITCH_NARRATIVE', 'CONCEPT_DESCRIPTION', 'WIREFRAME_DESCRIPTION', 'WALKTHROUGH_SCRIPT'];
 export const RECOMMENDATIONS = ['APPROVE', 'HOLD', 'REJECT'];

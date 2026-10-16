@@ -1,0 +1,524 @@
+[
+ {
+  "relname": "agent_runs",
+  "cols": [
+   {
+    "col": "id",
+    "type": "uuid",
+    "nn": true,
+    "def": "gen_random_uuid()"
+   },
+   {
+    "col": "case_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "organization_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "agent_type",
+    "type": "text",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "prompt",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "response",
+    "type": "jsonb",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "status",
+    "type": "text",
+    "nn": true,
+    "def": "'PENDING'::text"
+   },
+   {
+    "col": "created_at",
+    "type": "timestamp without time zone",
+    "nn": false,
+    "def": "now()"
+   },
+   {
+    "col": "model",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "error",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "completed_at",
+    "type": "timestamp with time zone",
+    "nn": false,
+    "def": null
+   }
+  ],
+  "cons": [
+   {
+    "name": "agent_runs_agent_type_check",
+    "def": "CHECK ((agent_type = ANY (ARRAY['RADAR_CORE'::text, 'GROWTH_BLUEPRINT'::text, 'COMMERCIAL_ACTION_PACK'::text])))"
+   },
+   {
+    "name": "agent_runs_case_id_fkey",
+    "def": "FOREIGN KEY (case_id) REFERENCES cases(id)"
+   },
+   {
+    "name": "agent_runs_failed_requires_error",
+    "def": "CHECK (((status <> 'FAILED'::text) OR (error IS NOT NULL)))"
+   },
+   {
+    "name": "agent_runs_organization_id_fkey",
+    "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id)"
+   },
+   {
+    "name": "agent_runs_pkey",
+    "def": "PRIMARY KEY (id)"
+   },
+   {
+    "name": "agent_runs_status_check",
+    "def": "CHECK ((status = ANY (ARRAY['PENDING'::text, 'RUNNING'::text, 'COMPLETED'::text, 'FAILED'::text])))"
+   }
+  ],
+  "trg": null,
+  "idx": [
+   "CREATE INDEX idx_agent_runs_org ON public.agent_runs USING btree (organization_id)",
+   "CREATE INDEX idx_agent_runs_case ON public.agent_runs USING btree (case_id)",
+   "CREATE UNIQUE INDEX agent_runs_one_running_action_pack_per_case ON public.agent_runs USING btree (case_id) WHERE ((agent_type = 'COMMERCIAL_ACTION_PACK'::text) AND (status = 'RUNNING'::text))"
+  ],
+  "rls": true,
+  "pols": [
+   {
+    "p": "agency_os_manuel_read",
+    "cmd": "r",
+    "roles": "{authenticated}",
+    "using": "( SELECT agency_os_is_manuel() AS agency_os_is_manuel)",
+    "check": null
+   }
+  ],
+  "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+ },
+ {
+  "relname": "case_events",
+  "cols": [
+   {
+    "col": "id",
+    "type": "uuid",
+    "nn": true,
+    "def": "gen_random_uuid()"
+   },
+   {
+    "col": "case_id",
+    "type": "uuid",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "event_type",
+    "type": "text",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "agent_run_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "payload",
+    "type": "jsonb",
+    "nn": false,
+    "def": "'{}'::jsonb"
+   },
+   {
+    "col": "created_at",
+    "type": "timestamp with time zone",
+    "nn": true,
+    "def": "now()"
+   },
+   {
+    "col": "actor",
+    "type": "text",
+    "nn": true,
+    "def": null
+   }
+  ],
+  "cons": [
+   {
+    "name": "case_events_actor_check",
+    "def": "CHECK ((length(btrim(actor)) > 0))"
+   },
+   {
+    "name": "case_events_agent_run_id_fkey",
+    "def": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id)"
+   },
+   {
+    "name": "case_events_case_id_fkey",
+    "def": "FOREIGN KEY (case_id) REFERENCES cases(id)"
+   },
+   {
+    "name": "case_events_event_type_check",
+    "def": "CHECK ((event_type = ANY (ARRAY['SIGNAL_RECEIVED'::text, 'CONTEXT_ADDED'::text, 'RUN_STARTED'::text, 'RUN_COMPLETED'::text, 'RUN_FAILED'::text, 'GATE_OPENED'::text, 'DECISION_RECORDED'::text, 'INFO_REQUESTED'::text, 'HOLD_SET'::text, 'STATUS_CHANGED'::text, 'RETRY_AUTHORIZED'::text, 'BLUEPRINT_AUTHORIZED'::text, 'ACTION_PACK_AUTHORIZED'::text])))"
+   },
+   {
+    "name": "case_events_pkey",
+    "def": "PRIMARY KEY (id)"
+   }
+  ],
+  "trg": [
+   "CREATE TRIGGER case_events_human_attribution_guard BEFORE INSERT ON public.case_events FOR EACH ROW EXECUTE FUNCTION case_events_human_attribution_guard()",
+   "CREATE TRIGGER case_events_no_truncate BEFORE TRUNCATE ON public.case_events FOR EACH STATEMENT EXECUTE FUNCTION case_events_append_only()",
+   "CREATE TRIGGER case_events_no_update_delete BEFORE DELETE OR UPDATE ON public.case_events FOR EACH ROW EXECUTE FUNCTION case_events_append_only()"
+  ],
+  "idx": [
+   "CREATE INDEX idx_events_case ON public.case_events USING btree (case_id)",
+   "CREATE INDEX idx_case_events_run ON public.case_events USING btree (agent_run_id)"
+  ],
+  "rls": true,
+  "pols": [
+   {
+    "p": "agency_os_manuel_read",
+    "cmd": "r",
+    "roles": "{authenticated}",
+    "using": "( SELECT agency_os_is_manuel() AS agency_os_is_manuel)",
+    "check": null
+   }
+  ],
+  "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+ },
+ {
+  "relname": "cases",
+  "cols": [
+   {
+    "col": "id",
+    "type": "uuid",
+    "nn": true,
+    "def": "gen_random_uuid()"
+   },
+   {
+    "col": "organization_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "case_name",
+    "type": "text",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "client_info",
+    "type": "jsonb",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "discovery_signal",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "atlas_confidence",
+    "type": "numeric",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "status",
+    "type": "text",
+    "nn": true,
+    "def": "'SIGNAL_RECEIVED'::text"
+   },
+   {
+    "col": "created_at",
+    "type": "timestamp without time zone",
+    "nn": false,
+    "def": "now()"
+   },
+   {
+    "col": "signal_source",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "entered_by",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "signal_received_at",
+    "type": "timestamp with time zone",
+    "nn": false,
+    "def": null
+   }
+  ],
+  "cons": [
+   {
+    "name": "cases_no_confidence_outside_legacy",
+    "def": "CHECK (((atlas_confidence IS NULL) OR (status = ANY (ARRAY['OPEN'::text, 'LEGACY'::text]))))"
+   },
+   {
+    "name": "cases_organization_id_fkey",
+    "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id)"
+   },
+   {
+    "name": "cases_pkey",
+    "def": "PRIMARY KEY (id)"
+   },
+   {
+    "name": "cases_status_check",
+    "def": "CHECK ((status = ANY (ARRAY['SIGNAL_RECEIVED'::text, 'CORE_RUNNING'::text, 'CORE_FAILED'::text, 'RADAR_PENDING'::text, 'RADAR_NEEDS_INFO'::text, 'INFO_PROVIDED'::text, 'RADAR_HOLD'::text, 'RADAR_REJECTED'::text, 'CLOSED_NON_GROWTH'::text, 'GROWTH_APPROVED'::text, 'BLUEPRINT_RUNNING'::text, 'BLUEPRINT_FAILED'::text, 'COMMERCIAL_PENDING'::text, 'COMMERCIAL_MODIFIED'::text, 'COMMERCIAL_HOLD'::text, 'COMMERCIAL_REJECTED'::text, 'COMMERCIAL_APPROVED'::text, 'LEGACY'::text, 'OPEN'::text, 'ACTION_PACK_RUNNING'::text, 'ACTION_PACK_FAILED'::text, 'ACTION_PACK_PENDING'::text, 'ACTION_PACK_MODIFIED'::text, 'OUTREACH_HOLD'::text, 'OUTREACH_ABANDONED'::text, 'CONTACT_AUTHORIZED'::text])))"
+   }
+  ],
+  "trg": [
+   "CREATE TRIGGER cases_decision_outcome_guard BEFORE UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION cases_decision_outcome_guard()",
+   "CREATE TRIGGER cases_discovery_signal_immutable BEFORE UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION cases_protect_discovery_signal()",
+   "CREATE TRIGGER cases_legacy_frozen BEFORE DELETE OR UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION cases_legacy_frozen()",
+   "CREATE TRIGGER cases_status_machine BEFORE INSERT OR UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION cases_enforce_status_machine()"
+  ],
+  "idx": [
+   "CREATE INDEX idx_case_org ON public.cases USING btree (organization_id)",
+   "CREATE INDEX idx_case_status ON public.cases USING btree (status)"
+  ],
+  "rls": true,
+  "pols": [
+   {
+    "p": "agency_os_manuel_read",
+    "cmd": "r",
+    "roles": "{authenticated}",
+    "using": "( SELECT agency_os_is_manuel() AS agency_os_is_manuel)",
+    "check": null
+   }
+  ],
+  "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+ },
+ {
+  "relname": "organizations",
+  "cols": [
+   {
+    "col": "id",
+    "type": "uuid",
+    "nn": true,
+    "def": "gen_random_uuid()"
+   },
+   {
+    "col": "name",
+    "type": "text",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "type",
+    "type": "text",
+    "nn": true,
+    "def": null
+   },
+   {
+    "col": "pilot_name",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "specialization",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "location",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "ghl_workspace_id",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "status",
+    "type": "text",
+    "nn": false,
+    "def": "'SETUP'::text"
+   },
+   {
+    "col": "created_at",
+    "type": "timestamp without time zone",
+    "nn": false,
+    "def": "now()"
+   }
+  ],
+  "cons": [
+   {
+    "name": "organizations_ghl_workspace_id_key",
+    "def": "UNIQUE (ghl_workspace_id)"
+   },
+   {
+    "name": "organizations_pkey",
+    "def": "PRIMARY KEY (id)"
+   }
+  ],
+  "trg": null,
+  "idx": [
+   "CREATE UNIQUE INDEX organizations_ghl_workspace_id_key ON public.organizations USING btree (ghl_workspace_id)",
+   "CREATE INDEX idx_org_status ON public.organizations USING btree (status)"
+  ],
+  "rls": true,
+  "pols": [
+   {
+    "p": "agency_os_manuel_read",
+    "cmd": "r",
+    "roles": "{authenticated}",
+    "using": "( SELECT agency_os_is_manuel() AS agency_os_is_manuel)",
+    "check": null
+   }
+  ],
+  "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+ },
+ {
+  "relname": "review_items",
+  "cols": [
+   {
+    "col": "id",
+    "type": "uuid",
+    "nn": true,
+    "def": "gen_random_uuid()"
+   },
+   {
+    "col": "case_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "recommendation_text",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "agent_reasoning",
+    "type": "jsonb",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "manuel_decision",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "manuel_notes",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "created_at",
+    "type": "timestamp without time zone",
+    "nn": false,
+    "def": "now()"
+   },
+   {
+    "col": "gate",
+    "type": "text",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "agent_run_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "decided_by_user_id",
+    "type": "uuid",
+    "nn": false,
+    "def": null
+   },
+   {
+    "col": "decided_at",
+    "type": "timestamp with time zone",
+    "nn": false,
+    "def": null
+   }
+  ],
+  "cons": [
+   {
+    "name": "review_items_agent_run_id_fkey",
+    "def": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id)"
+   },
+   {
+    "name": "review_items_case_id_fkey",
+    "def": "FOREIGN KEY (case_id) REFERENCES cases(id)"
+   },
+   {
+    "name": "review_items_decided_by_user_id_fkey",
+    "def": "FOREIGN KEY (decided_by_user_id) REFERENCES auth.users(id)"
+   },
+   {
+    "name": "review_items_gate_check",
+    "def": "CHECK (((gate IS NULL) OR (gate = ANY (ARRAY['RADAR'::text, 'COMMERCIAL'::text, 'OUTREACH'::text]))))"
+   },
+   {
+    "name": "review_items_gate_run_pairing",
+    "def": "CHECK (((gate IS NULL) = (agent_run_id IS NULL)))"
+   },
+   {
+    "name": "review_items_gated_decision_attributed",
+    "def": "CHECK (((gate IS NULL) OR (manuel_decision IS NULL) OR ((decided_by_user_id IS NOT NULL) AND (decided_at IS NOT NULL))))"
+   },
+   {
+    "name": "review_items_manuel_decision_check",
+    "def": "CHECK (((manuel_decision IS NULL) OR (manuel_decision = ANY (ARRAY['APPROVE'::text, 'MODIFY'::text, 'HOLD'::text, 'NEEDS_MORE_INFO'::text, 'REJECT'::text, 'AUTHORIZE_CONTACT'::text, 'ABANDON'::text]))))"
+   },
+   {
+    "name": "review_items_pkey",
+    "def": "PRIMARY KEY (id)"
+   }
+  ],
+  "trg": [
+   "CREATE TRIGGER review_items_guard BEFORE INSERT OR DELETE OR UPDATE ON public.review_items FOR EACH ROW EXECUTE FUNCTION review_items_guard()"
+  ],
+  "idx": [
+   "CREATE INDEX idx_review_items_case ON public.review_items USING btree (case_id)",
+   "CREATE INDEX idx_review_items_run ON public.review_items USING btree (agent_run_id)",
+   "CREATE UNIQUE INDEX review_items_one_outreach_item_per_run ON public.review_items USING btree (agent_run_id) WHERE (gate = 'OUTREACH'::text)"
+  ],
+  "rls": true,
+  "pols": [
+   {
+    "p": "agency_os_manuel_read",
+    "cmd": "r",
+    "roles": "{authenticated}",
+    "using": "( SELECT agency_os_is_manuel() AS agency_os_is_manuel)",
+    "check": null
+   }
+  ],
+  "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+ }
+]

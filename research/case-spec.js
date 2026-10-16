@@ -26,6 +26,27 @@ export const CASE_BUDGET_CAPS = Object.freeze({
   max_estimated_cost_usd: 1.0,
 });
 
+// INTEGRATION 006: explicit seed URLs supplied by Manuel. Their registrable domains join the allowed set explicitly;
+// every other domain stays unreachable. Seeds and every engine-fetched URL must also pass urlSafetyError (no SSRF vectors).
+export const CASE_MAX_SEED_URLS = 3;
+const MAX_URL_CHARS = 2048;
+const BLOCKED_HOST = /(^localhost$|\.localhost$|\.local$|\.internal$|\.intranet$|\.lan$|\.home\.arpa$|^metadata\.google\.internal$)/i;
+/** Null when the URL is an acceptable public http(s) page address; otherwise the reason it is refused. */
+export function urlSafetyError(url) {
+  if (typeof url !== 'string' || !url.trim()) return 'URL_REQUIRED';
+  const raw = url.trim();
+  if (raw.length > MAX_URL_CHARS) return 'URL_TOO_LONG';
+  if (/\s/.test(raw)) return 'URL_HAS_WHITESPACE';
+  if (!/^https?:\/\//i.test(raw)) return 'URL_SCHEME_NOT_HTTP';
+  let u; try { u = new URL(raw); } catch { return 'URL_UNPARSEABLE'; }
+  if (u.username || u.password) return 'URL_HAS_CREDENTIALS';
+  if (u.port && !((u.protocol === 'https:' && u.port === '443') || (u.protocol === 'http:' && u.port === '80'))) return 'URL_NON_STANDARD_PORT';
+  const host = u.hostname.toLowerCase();
+  if (host.startsWith('[') || /^[0-9.]+$/.test(host) || /^0x/i.test(host)) return 'URL_IP_LITERAL';
+  if (!host.includes('.') || BLOCKED_HOST.test(host)) return 'URL_PRIVATE_HOST';
+  return null;
+}
+
 export class CaseResearchError extends Error {
   constructor(code, detail, raw = null) { super(`${code}${detail ? `: ${detail}` : ''}`); this.code = code; this.raw = raw; }
 }
@@ -39,6 +60,8 @@ export const isCaseId = (v) => typeof v === 'string' && UUID.test(v);
 /** Registrable domain of the prospect website; throws PROSPECT_URL_INVALID for anything that is not http(s). */
 export function prospectDomain(url) {
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) throw new CaseResearchError('PROSPECT_URL_INVALID', 'prospect URL must be an absolute http(s) URL');
+  const unsafe = urlSafetyError(url);
+  if (unsafe) throw new CaseResearchError('PROSPECT_URL_INVALID', unsafe);
   const d = registrableDomain(url.trim());
   if (!d || !d.includes('.')) throw new CaseResearchError('PROSPECT_URL_INVALID', 'prospect URL has no registrable domain');
   return d;
@@ -50,8 +73,28 @@ const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
  * Prospect-evidence spec for one case. `context` items (signal text, Manuel's notes) are carried as DATA in spec.context:
  * they orient passage selection; they are never evidence and never instructions.
  */
-export function buildProspectSpec({ prospectName, prospectUrl, context = [], locale = { country: 'ES', region: null, city: null, timezone: null }, languages = ['es', 'en'] }) {
+/** Validated, de-duplicated seed URLs and the registrable domains they add (prospect domain excluded). */
+export function normalizeSeeds(seedUrls, { domain }) {
+  const list = seedUrls == null ? [] : seedUrls;
+  if (!Array.isArray(list)) throw new CaseResearchError('SEED_URLS_INVALID', 'seed_urls must be an array');
+  if (list.length > CASE_MAX_SEED_URLS) throw new CaseResearchError('SEED_URLS_TOO_MANY', `at most ${CASE_MAX_SEED_URLS} seed URLs`);
+  const seeds = []; const domains = [];
+  for (const s of list) {
+    const why = urlSafetyError(s);
+    if (why) throw new CaseResearchError('SEED_URL_INVALID', why);
+    const u = new URL(s.trim()).toString();
+    const d = registrableDomain(u);
+    if (!d || !d.includes('.')) throw new CaseResearchError('SEED_URL_INVALID', 'no registrable domain');
+    if (!seeds.includes(u)) seeds.push(u);
+    if (d !== domain && !domains.includes(d)) domains.push(d);
+  }
+  return { seeds, domains };
+}
+
+export function buildProspectSpec({ prospectName, prospectUrl, context = [], locale = { country: 'ES', region: null, city: null, timezone: null }, languages = ['es', 'en'], seedDomains = [] }) {
   const domain = prospectDomain(prospectUrl);
+  const extra = (Array.isArray(seedDomains) ? seedDomains : []).filter((d) => d && d !== domain);
+  const scope = extra.length ? `${domain} and the explicitly provided seed pages on ${extra.join(', ')}` : domain;
   const name = clip(prospectName, 60) || domain;
   const spec = {
     spec_version: RESEARCH_SPEC_VERSION,
@@ -63,9 +106,9 @@ export function buildProspectSpec({ prospectName, prospectUrl, context = [], loc
     categories: [{
       key: PROSPECT_CATEGORY,
       label: 'Prospect public website',
-      description: `Pages of ${domain} only. The prospect is already known; do not look for other organisations.`,
+      description: `Pages of ${scope} only. The prospect is already known; do not look for other organisations.`,
       target_count: 1,
-      criteria: [`Page belongs to ${domain}`, 'Publicly accessible without login', 'Describes the organisation, its services, its people or how to contact it'],
+      criteria: [`Page belongs to ${scope}`, 'Publicly accessible without login', 'Describes the organisation, its services, its people or how to contact it'],
       fields: [
         { key: 'value_proposition', label: 'Value proposition / main message', key_field: true, never_infer: true, required_source_types: ['OPERATOR_SITE'] },
         { key: 'services', label: 'Services or practice areas listed', key_field: true, never_infer: true, required_source_types: ['OPERATOR_SITE'] },
@@ -76,7 +119,7 @@ export function buildProspectSpec({ prospectName, prospectUrl, context = [], loc
     }],
     constraints: [
       'Read-only: never contact anyone, submit forms or log in.',
-      `Only pages on ${domain}.`,
+      `Only pages on ${scope}.`,
       'Capture what the page literally says; absence of a section is not evidence of a deficiency unless the page states it.',
     ],
     context: (Array.isArray(context) ? context : []).filter((c) => typeof c === 'string' && c.trim()).slice(0, MAX_CONTEXT_ITEMS).map((c) => clip(c, MAX_CONTEXT_CHARS)),
@@ -86,7 +129,7 @@ export function buildProspectSpec({ prospectName, prospectUrl, context = [], loc
 }
 
 /** Errors for an explicit budget against the frozen v0.2 schema AND the case caps. Empty array = acceptable. */
-export function caseBudgetErrors(budget, { domain }) {
+export function caseBudgetErrors(budget, { domain, seedDomains = [] }) {
   if (budget == null || typeof budget !== 'object' || Array.isArray(budget)) return ['BUDGET_REQUIRED'];
   const e = [];
   if (budget.budget_version !== RESEARCH_BUDGET_VERSION) e.push(`budget_version must be ${RESEARCH_BUDGET_VERSION}`);
@@ -99,8 +142,16 @@ export function caseBudgetErrors(budget, { domain }) {
   if (typeof budget.max_estimated_cost_usd !== 'number' || !(budget.max_estimated_cost_usd > 0)) e.push('max_estimated_cost_usd is required and must be > 0');
   else if (budget.max_estimated_cost_usd > CASE_BUDGET_CAPS.max_estimated_cost_usd) e.push(`max_estimated_cost_usd ${budget.max_estimated_cost_usd} > case cap ${CASE_BUDGET_CAPS.max_estimated_cost_usd}`);
   const allowed = Array.isArray(budget.allowed_domains) ? budget.allowed_domains : [];
+  const permitted = new Set([domain, ...(Array.isArray(seedDomains) ? seedDomains : [])]);
   if (allowed.length === 0) e.push('allowed_domains must name the prospect domain');
-  for (const d of allowed) if (registrableDomain(`https://${String(d).replace(/^https?:\/\//, '')}`) !== domain) e.push(`allowed domain ${d} is not the prospect domain ${domain}`);
+  const named = new Set();
+  for (const d of allowed) {
+    const rd = registrableDomain(`https://${String(d).replace(/^https?:\/\//, '')}`);
+    named.add(rd);
+    if (!permitted.has(rd)) e.push(rd === null ? `allowed domain ${d} is invalid` : seedDomains.length ? `allowed domain ${d} is neither the prospect domain ${domain} nor a seed domain` : `allowed domain ${d} is not the prospect domain ${domain}`);
+  }
+  if (allowed.length && !named.has(domain)) e.push(`allowed_domains must include the prospect domain ${domain}`);
+  for (const d of permitted) if (d !== domain && allowed.length && !named.has(d)) e.push(`allowed_domains must include seed domain ${d}`);
   if (Array.isArray(budget.blocked_domains) && budget.blocked_domains.length) e.push('blocked_domains must be empty (allowed_domains is authoritative)');
   return e;
 }

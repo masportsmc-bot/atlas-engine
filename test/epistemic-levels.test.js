@@ -40,7 +40,7 @@ function radarWithResearch(sources, factStatement, { content = (s) => `Source te
   const o = outputA();
   const ids = sources.map((s, i) => {
     const id = `E${6 + i}`;
-    o.evidence.push({ id, content: content(s), source_type: s.source_type, source_ref: s.url, provided_by: 'CONTEXT', observed_at: null });
+    o.evidence.push({ id, content: content(s), source_type: s.source_type, source_ref: s.url, provided_by: 'RESEARCH', observed_at: null });
     return id;
   });
   o.facts.push({ id: 'F5', statement: factStatement, evidence_ids: ids });
@@ -78,7 +78,7 @@ function andinoWithOwnSite(statement) {
   const b = replayBundle7f88(); const o = replayOutput7f88();
   const s = source({ key: 'S1', url: 'https://despacho-ejemplo.example/', type: 'OPERATOR_SITE', excerpt: 'Somos un despacho de referencia con amplia experiencia' });
   b.research_sources = [s];
-  o.additional_evidence.push({ id: 'X90', content: `La web del despacho dice: "${s.excerpt}".`, source_type: 'OPERATOR_SITE', source_ref: s.url, provided_by: 'CONTEXT' });
+  o.additional_evidence.push({ id: 'X90', content: `La web del despacho dice: "${s.excerpt}".`, source_type: 'OPERATOR_SITE', source_ref: s.url, provided_by: 'RESEARCH' });
   o.additional_facts.push({ id: 'XF90', statement, evidence_ids: ['X90'] });
   o.refined_diagnosis[0].supporting_ids.push('XF90');
   return { o, b };
@@ -204,7 +204,7 @@ test('RADAR: evidence citing a verified source must carry its verified excerpt (
 function bpWithResearch(src, xfStatement) {
   const b = clone(bpBundle); b.research_sources = [src];
   const o = bpOutput();
-  o.additional_evidence.push({ id: 'X1', content: `Fuente: "${src.excerpt}".`, source_type: src.source_type, source_ref: src.url, provided_by: 'CONTEXT' });
+  o.additional_evidence.push({ id: 'X1', content: `Fuente: "${src.excerpt}".`, source_type: src.source_type, source_ref: src.url, provided_by: 'RESEARCH' });
   o.additional_facts.push({ id: 'XF1', statement: xfStatement, evidence_ids: ['X1'] });
   return { o, b };
 }
@@ -251,14 +251,18 @@ test('BLUEPRINT: a RADAR fact backed by bundle research is levelled too (corrobo
   const b = clone(bpBundle);
   b.research_sources = [source({ key: 'S1', url: 'https://despacho-ejemplo.example/', type: 'OPERATOR_SITE', excerpt: 'contacto por correo' }),
     source({ key: 'S2', url: 'https://guia-abogados.example/d', type: 'DIRECTORY', excerpt: 'contacto por correo' })];
-  b.radar.snapshot.evidence.push({ id: 'E9', content: 'Web y directorio: "contacto por correo".', source_type: 'OPERATOR_SITE', source_ref: 'https://despacho-ejemplo.example/', provided_by: 'CONTEXT', observed_at: null },
-    { id: 'E10', content: 'Directorio: "contacto por correo".', source_type: 'DIRECTORY', source_ref: 'https://guia-abogados.example/d', provided_by: 'CONTEXT', observed_at: null });
+  b.radar.snapshot.evidence.push({ id: 'E9', content: 'Web y directorio: "contacto por correo".', source_type: 'OPERATOR_SITE', source_ref: 'https://despacho-ejemplo.example/', provided_by: 'RESEARCH', observed_at: null },
+    { id: 'E10', content: 'Directorio: "contacto por correo".', source_type: 'DIRECTORY', source_ref: 'https://guia-abogados.example/d', provided_by: 'RESEARCH', observed_at: null });
   b.radar.snapshot.facts.push({ id: 'F9', statement: 'Su web y un directorio indican contacto por correo.', evidence_ids: ['E9', 'E10'] });
   const o = bpOutput(); o.refined_diagnosis[0].supporting_ids.push('F9'); o.refined_diagnosis[0].strength = 'ESTABLISHED';
   o.refined_diagnosis[0].statement = 'Contacto limitado comprobado: la web no facilita el contacto.';
   assert.deepEqual(validateBlueprintOutput(o, b).violations, []);
-  b.research_sources.pop(); // without the independent directory: SOURCE_VERIFIED only, "comprobado" rejected
+  // the directory turns out to be a listing published by the firm itself: no independent group, "comprobado" rejected
+  b.research_sources[1] = source({ key: 'S2', url: 'https://guia-abogados.example/d', type: 'OPERATOR_SITE', excerpt: 'contacto por correo' });
   assert.deepEqual(cp(validateBlueprintOutput(o, b)), ['UNSUPPORTED_VERIFICATION_CLAIM $.refined_diagnosis[0].statement']);
+  // and a RESEARCH item whose source is missing from the bundle cannot be re-verified: UNCONFIRMED, never OBSERVED
+  b.research_sources.pop();
+  assert.deepEqual(cp(validateBlueprintOutput(o, b)), ['ESTABLISHED_ON_OBSERVATION $.refined_diagnosis[0]', 'UNSUPPORTED_VERIFICATION_CLAIM $.refined_diagnosis[0].statement']);
 });
 for (const [field, set] of [
   ['refined diagnosis', (o, t) => { o.refined_diagnosis[0].statement = t; }],
@@ -308,13 +312,14 @@ test('helpers: fact levels', () => {
 });
 
 // ======================= 8. compatibility =======================
-test('COMPAT: contracts and tool schemas are unchanged (no new enum, same schema hashes); templates at the INTEGRATION 005 versions', () => {
-  assert.deepEqual(PROVIDED_BY, ['SIGNAL', 'MANUEL', 'CONTEXT', 'AGENCY_OS_RECORD']);
-  assert.deepEqual(EVIDENCE_PROVIDER, ['MANUEL', 'CONTEXT']);
-  assert.equal(sha256(canonical(radarSchema)), '1c13b10afb6bfba32a209bd85c0dc3d8f16c87639d2868b4e18b6c9e8b2c1235');
-  assert.equal(sha256(canonical(blueprintSchema)), 'c12c5b2d7bdd86cda287ec31c229ab99ad6173d7b60f9b367ba5f4fea4d7e795');
-  assert.equal(TEMPLATE_VERSION, '0.1.4');
-  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.2');
+test('COMPAT: contracts differ from INTEGRATION 005 only by the RESEARCH provenance value; templates at the INTEGRATION 006 versions', () => {
+  // INTEGRATION 006 (decision 1A): the only contract change is the explicit RESEARCH provenance value.
+  assert.deepEqual(PROVIDED_BY, ['SIGNAL', 'MANUEL', 'CONTEXT', 'AGENCY_OS_RECORD', 'RESEARCH']);
+  assert.deepEqual(EVIDENCE_PROVIDER, ['MANUEL', 'CONTEXT', 'RESEARCH']);
+  assert.equal(sha256(canonical(radarSchema)), 'e8b48d17c519a7c8b09dd3c57450aa8fd7143c2d10f24477eeba3c0705f4595e');
+  assert.equal(sha256(canonical(blueprintSchema)), '8b5f3239b1e5f0a7d26c3ea50e668268fb5ca3254875816ba10aac3c31e3d54c');
+  assert.equal(TEMPLATE_VERSION, '0.1.5');
+  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.3');
 });
 test('COMPAT: bundles without research_sources (every bundle today) need nothing new; TENTATIVE outputs are untouched', () => {
   assert.equal('research_sources' in bundleA, false);

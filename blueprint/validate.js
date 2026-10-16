@@ -3,7 +3,7 @@
 import Ajv from 'ajv';
 import { blueprintSchema, BLUEPRINT_CONTRACT_VERSION } from './contract.js';
 import { quantityTokens } from '../radar/validate.js'; // shared CORE: ID-safe numeric tracing
-import { LEVEL, LEVEL_NAME, researchIndex, subjectDomain, evidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from '../radar/epistemic.js';
+import { LEVEL, LEVEL_NAME, researchIndex, subjectDomains, resolvesToResearch, declaredEvidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from '../radar/epistemic.js';
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const checkSchema = ajv.compile(blueprintSchema);
@@ -184,6 +184,10 @@ export function validateBlueprintOutput(output, bundle) {
   output.additional_evidence.forEach((e, i) => {
     if (e.provided_by === 'CONTEXT' && !(bundle?.context || []).length) add('PROVENANCE', `$.additional_evidence[${i}]`, 'provided_by CONTEXT but there is no context');
     if (e.source_ref !== null && !bundleJson.includes(e.source_ref)) add('PROVENANCE', `$.additional_evidence[${i}]`, 'source_ref does not appear in the governed input');
+    // Research provenance is explicit (INTEGRATION 006): RESEARCH <=> source_ref resolves to a research source of the bundle.
+    const isResearchRef = resolvesToResearch(e.source_ref, researchIndex(bundle));
+    if (e.provided_by === 'RESEARCH' && !isResearchRef) add('PROVENANCE', `$.additional_evidence[${i}]`, 'RESEARCH evidence must cite a research source of the bundle (source_ref = its source_id)');
+    if (e.provided_by !== 'RESEARCH' && isResearchRef) add('PROVENANCE', `$.additional_evidence[${i}]`, 'evidence citing a research source must be provided_by RESEARCH');
   });
 
   // ---------- 5. facts, inferences, refined diagnosis ----------
@@ -218,9 +222,9 @@ export function validateBlueprintOutput(output, bundle) {
   // RADAR evidence (E) and Blueprint evidence (X) resolve against the optional bundle.research_sources (absent today:
   // every item is then OBSERVED). Manuel's notes, the signal and Agency OS records are OBSERVED by construction.
   const index = researchIndex(bundle);
-  const subjDom = subjectDomain(bundle);
+  const subjDom = subjectDomains(bundle);
   const ev = new Map();
-  for (const [id, r] of reg) if (r.cls === 'E' || r.cls === 'X') ev.set(id, evidenceLevel(r.item, index, subjDom));
+  for (const [id, r] of reg) if (r.cls === 'E' || r.cls === 'X') ev.set(id, declaredEvidenceLevel(r.item, index, subjDom));
   output.additional_evidence.forEach((e, i) => {
     if (ev.get(e.id)?.issue === 'EXCERPT_MISMATCH') add('RESEARCH_EXCERPT_MISMATCH', `$.additional_evidence[${i}].content`, 'evidence cites a verified research source but does not carry its verified excerpt');
   });

@@ -137,8 +137,8 @@ test('no other missing field is completed', () => {
 test('non-object outputs are never normalized', () => {
   for (const v of [null, 'x', [], 7]) assert.deepEqual(normalizeBlueprintOutput(v).applied, []);
 });
-test('prompt template 0.1.2 explicitly requires the contract_version constant', () => {
-  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.2');
+test('prompt template 0.1.3 explicitly requires the contract_version constant', () => {
+  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.3');
   assert.ok(BLUEPRINT_SYSTEM_PROMPT.includes('MUST include the constant field "contract_version": "growth_blueprint/0.1"'));
   assert.equal(BLUEPRINT_TOOL.strict, undefined);
 });
@@ -168,7 +168,7 @@ test('worker replay cfbb04c1: manifest records the normalization; the run now fa
   const f = calls.find((c) => c.fn === 'blueprint_fail_run');
   assert.match(f.args.p_error, /^VALIDATION_FAILED/);
   const manifest = JSON.parse(f.args.p_prompt);
-  assert.equal(manifest.template.version, '0.1.2');
+  assert.equal(manifest.template.version, '0.1.3');
   assert.deepEqual(manifest.normalizations, [{ rule: 'CONTRACT_VERSION_OMITTED_TO_CONST', path: '$.contract_version', value: 'growth_blueprint/0.1' }]);
   failedOnlyEpistemically(f);
 });

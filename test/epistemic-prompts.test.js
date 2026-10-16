@@ -1,4 +1,4 @@
-// INTEGRATION 005 — prompt alignment with the evidence levels (RADAR template 0.1.4, Blueprint template 0.1.2).
+// INTEGRATION 005/006 — prompt alignment with the evidence levels (RADAR template 0.1.5, Blueprint template 0.1.3).
 // Offline: no model is called. Checks that the prompts teach exactly what the (unchanged) validators enforce, and that the
 // anonymised Andino examples keep their commercial usefulness without falsely verified claims.
 import { test } from 'node:test';
@@ -21,11 +21,11 @@ const PROMPTS = [['RADAR', SYSTEM_PROMPT], ['BLUEPRINT', BLUEPRINT_SYSTEM_PROMPT
 const VALIDATOR_TERMS = ['verificado', 'confirmado', 'comprobado', 'contrastado', 'corroborado', 'verified', 'confirmed', 'corroborated', 'substantiated'];
 
 // ---------------- 1. the prompts teach the three levels and the strength rule ----------------
-test('versions bumped (prompt text changed); contract schemas untouched', () => {
-  assert.equal(TEMPLATE_VERSION, '0.1.4');
-  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.2');
-  assert.equal(sha256(canonical(radarSchema)), '1c13b10afb6bfba32a209bd85c0dc3d8f16c87639d2868b4e18b6c9e8b2c1235');
-  assert.equal(sha256(canonical(blueprintSchema)), 'c12c5b2d7bdd86cda287ec31c229ab99ad6173d7b60f9b367ba5f4fea4d7e795');
+test('versions bumped; schemas = INTEGRATION 006 (RESEARCH provenance only)', () => {
+  assert.equal(TEMPLATE_VERSION, '0.1.5');
+  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.3');
+  assert.equal(sha256(canonical(radarSchema)), 'e8b48d17c519a7c8b09dd3c57450aa8fd7143c2d10f24477eeba3c0705f4595e');
+  assert.equal(sha256(canonical(blueprintSchema)), '8b5f3239b1e5f0a7d26c3ea50e668268fb5ca3254875816ba10aac3c31e3d54c');
 });
 for (const [name, P] of PROMPTS) {
   test(`${name} prompt: defines OBSERVED, SOURCE_VERIFIED and CORROBORATED as the validators compute them`, () => {
@@ -79,7 +79,7 @@ test('rendered requests carry the new prompts; tool schemas and tool_choice unch
   const b = buildBlueprintRequest({}, 'm');
   assert.equal(b.system, BLUEPRINT_SYSTEM_PROMPT); assert.equal(b.tools[0], BLUEPRINT_TOOL); assert.equal(b.tools[0].input_schema, blueprintSchema);
   const m = buildManifest({ request: r, bundle: {}, runId: 'r' });
-  assert.deepEqual(m.template, { id: 'radar_core_system', version: '0.1.4', sha256: sha256(SYSTEM_PROMPT) });
+  assert.deepEqual(m.template, { id: 'radar_core_system', version: '0.1.5', sha256: sha256(SYSTEM_PROMPT) });
 });
 
 // ---------------- 2. the prompt examples, run through the real validators ----------------
@@ -143,7 +143,7 @@ test('Reason Why on observation: INFERENCE (as the prompt instructs) validates; 
 });
 
 // ---------------- 3. workers (mocked model and RPC; nothing leaves the process) ----------------
-test('RADAR worker: a prompt-aligned Andino assessment completes; manifest records template 0.1.4', async () => {
+test('RADAR worker: a prompt-aligned Andino assessment completes; manifest records template 0.1.5', async () => {
   const { b, o } = andinoRadar();
   const calls = []; let n = 0;
   const supabase = { rpc: async (fn, args) => { calls.push({ fn, args });
@@ -156,9 +156,9 @@ test('RADAR worker: a prompt-aligned Andino assessment completes; manifest recor
   assert.equal(calls.find((c) => c.fn === 'model').req.system, SYSTEM_PROMPT);
   const done = calls.find((c) => c.fn === 'radar_complete_run');
   assert.ok(done, 'run completed');
-  assert.deepEqual(JSON.parse(done.args.p_prompt).template, { id: 'radar_core_system', version: '0.1.4', sha256: sha256(SYSTEM_PROMPT) });
+  assert.deepEqual(JSON.parse(done.args.p_prompt).template, { id: 'radar_core_system', version: '0.1.5', sha256: sha256(SYSTEM_PROMPT) });
 });
-test('Blueprint worker: the prompt-aligned Andino Blueprint completes; manifest records template 0.1.2', async () => {
+test('Blueprint worker: the prompt-aligned Andino Blueprint completes; manifest records template 0.1.3', async () => {
   const calls = []; let n = 0;
   const supabase = { rpc: async (fn, args) => { calls.push({ fn, args });
     if (fn === 'blueprint_claim_next') return { data: n++ === 0 ? { run_id: 'run-b', case_id: 'case-b', bundle: replayBundle7f88() } : null, error: null };
@@ -170,5 +170,5 @@ test('Blueprint worker: the prompt-aligned Andino Blueprint completes; manifest 
   assert.equal(calls.find((c) => c.fn === 'model').req.system, BLUEPRINT_SYSTEM_PROMPT);
   const done = calls.find((c) => c.fn === 'blueprint_complete_run');
   assert.ok(done, 'run completed');
-  assert.equal(JSON.parse(done.args.p_prompt).template.version, '0.1.2');
+  assert.equal(JSON.parse(done.args.p_prompt).template.version, '0.1.3');
 });

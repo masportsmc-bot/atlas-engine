@@ -2,7 +2,7 @@
 // Returns { valid: boolean, violations: [{ code, path, message }] }. Never throws on bad model output.
 import Ajv from 'ajv';
 import { radarSchema, CONTRACT_VERSION } from './contract.js';
-import { LEVEL, LEVEL_NAME, researchIndex, subjectDomain, evidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from './epistemic.js';
+import { LEVEL, LEVEL_NAME, researchIndex, subjectDomains, resolvesToResearch, declaredEvidenceLevel, factLevel, verificationClaims, isAttributed, verifiedExcerpts } from './epistemic.js';
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const checkSchema = ajv.compile(radarSchema);
@@ -129,11 +129,15 @@ export function validateRadarOutput(output, bundle) {
   const relatedIds = new Set((bundle?.related_cases || []).map((c) => c.case_id));
   const hasContext = (bundle?.context || []).length > 0;
   const manuelMayProvide = hasContext || bundle?.signal?.source_type === 'MANUEL_OBSERVATION';
+  const rIndex = researchIndex(bundle);
   output.evidence.forEach((e, i) => {
     const p = `$.evidence[${i}]`;
     if (e.provided_by === 'CONTEXT' && !hasContext) add('PROVENANCE', p, 'provided_by CONTEXT but the bundle has no context');
     if (e.provided_by === 'MANUEL' && !manuelMayProvide) add('PROVENANCE', p, 'provided_by MANUEL but Manuel supplied no observation/context');
     if (e.provided_by === 'AGENCY_OS_RECORD' && !relatedIds.has(e.source_ref)) add('PROVENANCE', p, 'AGENCY_OS_RECORD evidence must cite a related case id as source_ref');
+    // Research provenance is explicit (INTEGRATION 006): RESEARCH <=> source_ref resolves to a research source of the bundle.
+    if (e.provided_by === 'RESEARCH' && !resolvesToResearch(e.source_ref, rIndex)) add('PROVENANCE', p, 'RESEARCH evidence must cite a research source of the bundle (source_ref = its source_id)');
+    if (e.provided_by !== 'RESEARCH' && resolvesToResearch(e.source_ref, rIndex)) add('PROVENANCE', p, 'evidence citing a research source must be provided_by RESEARCH');
     if (e.source_ref !== null && !bundleJson.includes(e.source_ref)) add('PROVENANCE', p, 'source_ref does not appear in the input bundle');
     for (const q of quantityTokens(e.content, knownIds)) {
       if (!corpusTokens.has(q)) add('UNSUPPORTED_QUANTITY', `${p}.content`, `quantity "${q}" does not appear in the supplied input`);
@@ -202,9 +206,9 @@ export function validateRadarOutput(output, bundle) {
 
   // ---------- epistemic levels: OBSERVED < SOURCE_VERIFIED < CORROBORATED (radar/epistemic.js) ----------
   {
-    const index = researchIndex(bundle);
-    const subjDom = subjectDomain(bundle);
-    const ev = new Map(output.evidence.map((e) => [e.id, evidenceLevel(e, index, subjDom)]));
+    const index = rIndex;
+    const subjDom = subjectDomains(bundle);
+    const ev = new Map(output.evidence.map((e) => [e.id, declaredEvidenceLevel(e, index, subjDom)]));
     output.evidence.forEach((e, i) => {
       const x = ev.get(e.id);
       if (x.issue === 'EXCERPT_MISMATCH') add('RESEARCH_EXCERPT_MISMATCH', `$.evidence[${i}].content`, 'evidence cites a verified research source but does not carry its verified excerpt');

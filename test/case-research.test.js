@@ -240,7 +240,11 @@ test('CI1 adapter and worker never import Stage B (pipeline / reasoning builders
     assert.ok(!/from '\.\/pipeline\.js'|runResearch\b|buildStageBRequest|RESULT_TOOL|STAGE_B_SYSTEM|atlas_research_(complete|record|claim|fail)/.test(src), f);
   }
 });
-test('CI2 the operational server does not reference any research module (engine unreachable from server.js)', () => {
+// INTEGRATION 006 (authorized): server.js now reaches the case research worker ONLY through research/case-wiring.js, which
+// keeps it OFF unless ATLAS_CASE_RESEARCH_WORKER_ENABLED=true. The VS003 mission worker stays unreachable from the server.
+test('CI2 the operational server reaches research only through the case wiring (VS003 mission worker unreachable)', () => {
   const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  assert.ok(!/research\//.test(src) && !/CASE_RESEARCH|ATLAS_RESEARCH/.test(src));
+  const imports = [...src.matchAll(/from '(\.\/research\/[^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual(imports, ['./research/case-wiring.js']);
+  assert.ok(!/ATLAS_RESEARCH_WORKER_ENABLED|research\/worker\.js|research\/pipeline\.js/.test(src));
 });
