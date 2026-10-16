@@ -308,13 +308,13 @@ test('helpers: fact levels', () => {
 });
 
 // ======================= 8. compatibility =======================
-test('COMPAT: contracts, tool schemas and prompt templates are unchanged (no new enum, same schema hashes)', () => {
+test('COMPAT: contracts and tool schemas are unchanged (no new enum, same schema hashes); templates at the INTEGRATION 005 versions', () => {
   assert.deepEqual(PROVIDED_BY, ['SIGNAL', 'MANUEL', 'CONTEXT', 'AGENCY_OS_RECORD']);
   assert.deepEqual(EVIDENCE_PROVIDER, ['MANUEL', 'CONTEXT']);
   assert.equal(sha256(canonical(radarSchema)), '1c13b10afb6bfba32a209bd85c0dc3d8f16c87639d2868b4e18b6c9e8b2c1235');
   assert.equal(sha256(canonical(blueprintSchema)), 'c12c5b2d7bdd86cda287ec31c229ab99ad6173d7b60f9b367ba5f4fea4d7e795');
-  assert.equal(TEMPLATE_VERSION, '0.1.3');
-  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.1');
+  assert.equal(TEMPLATE_VERSION, '0.1.4');
+  assert.equal(BLUEPRINT_TEMPLATE_VERSION, '0.1.2');
 });
 test('COMPAT: bundles without research_sources (every bundle today) need nothing new; TENTATIVE outputs are untouched', () => {
   assert.equal('research_sources' in bundleA, false);

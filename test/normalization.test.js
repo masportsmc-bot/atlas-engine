@@ -104,7 +104,7 @@ test('worker: replay 71c1cf5e completes; normalization recorded in manifest; per
   const done = calls.find((c) => c.fn === 'radar_complete_run');
   assert.ok(done, 'run completed');
   const manifest = JSON.parse(done.args.p_prompt);
-  assert.equal(manifest.template.version, '0.1.3');
+  assert.equal(manifest.template.version, '0.1.4');
   assert.deepEqual(manifest.normalizations, [{ rule: 'DROP_NULL_CONTENT_NOTE', path: '$.evidence[0].content_note' }]);
   assert.equal('content_note' in done.args.p_output.evidence[0], false);
 });

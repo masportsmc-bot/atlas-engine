@@ -21,10 +21,10 @@ test("A': no strict generation schema remains in the prompt module", () => {
   assert.equal(prompt.GENERATION_SCHEMA, undefined);
   assert.equal(prompt.toGenerationSchema, undefined);
 });
-test("A': manifest records strict:false, contract-schema hash and template 0.1.3", () => {
+test("A': manifest records strict:false, contract-schema hash and template 0.1.4", () => {
   const m = buildManifest({ request: buildRequest(bundleA, 'claude-sonnet-5'), bundle: bundleA, runId: 'r' });
-  assert.equal(TEMPLATE_VERSION, '0.1.3');
-  assert.equal(m.template.version, '0.1.3');
+  assert.equal(TEMPLATE_VERSION, '0.1.4');
+  assert.equal(m.template.version, '0.1.4');
   assert.equal(m.tool.strict, false);
   assert.equal(m.tool.schema_sha256, sha256(canonical(radarSchema)));
   assert.equal('generation_schema_sha256' in m.tool, false);
