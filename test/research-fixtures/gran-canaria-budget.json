@@ -1,0 +1,1 @@
+{"budget_version": "atlas_research_budget/0.2", "max_searches": 16, "searches_per_call": 1, "max_fetches": 16, "max_captures_per_page": 3, "max_page_chars": 3000, "max_input_tokens": 300000, "max_output_tokens": 80000, "max_seconds": 1500, "pricing": null, "max_estimated_cost_usd": null, "allowed_domains": [], "blocked_domains": []}

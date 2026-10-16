@@ -1,0 +1,74 @@
+{
+  "spec_version": "atlas_research_spec/0.1",
+  "title": "Supplier Discovery / Gran Canaria",
+  "objective": "Locate and evaluate suppliers capable of operating products for THE FIX (Destination Management) in Gran Canaria: (A) private chauffeur transport with Mercedes-Benz Vito / V-Class or clearly equivalent premium vehicles, and (B) official/accredited Gran Canaria tourist guides. Produce a reasoned, sourced shortlist of about five defensible candidates per category to support a human decision. This builds a reusable Gran Canaria supplier network; it is not limited to one product.",
+  "languages": ["es", "en"],
+  "locale": { "country": "ES", "region": "Canarias", "city": "Las Palmas de Gran Canaria", "timezone": "Atlantic/Canary" },
+  "categories": [
+    {
+      "key": "A_CHAUFFEUR",
+      "label": "Chauffeur / Mercedes Vito – V-Class",
+      "description": "Private chauffeur-driven transport providers operating in Gran Canaria with Mercedes-Benz Vito / V-Class or clearly equivalent premium vehicles, suitable for small premium groups of international clients.",
+      "target_count": 5,
+      "criteria": [
+        "Operates in Gran Canaria",
+        "Mercedes Vito or V-Class, or clearly equivalent premium vehicle",
+        "Professional chauffeur",
+        "6–7 passenger capacity",
+        "Half-day and/or full-day availability",
+        "Private service",
+        "Premium presentation / standard",
+        "Suitable for international clients",
+        "Potential B2B / agency / DMC collaboration",
+        "Able to operate routes across the island"
+      ],
+      "fields": [
+        { "key": "operating_area", "label": "Location / operating area", "key_field": true, "never_infer": false, "required_source_types": [] },
+        { "key": "vehicle_fleet", "label": "Vehicles / fleet (Vito, V-Class or equivalent)", "key_field": true, "never_infer": true, "required_source_types": [] },
+        { "key": "passenger_capacity", "label": "Passenger capacity (6–7)", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "professional_chauffeur", "label": "Professional chauffeur service", "key_field": true, "never_infer": true, "required_source_types": [] },
+        { "key": "service_durations", "label": "Half-day / full-day availability", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "private_service", "label": "Private (non-shared) service", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "island_routes", "label": "Routes across the island", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "languages", "label": "Languages", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "b2b_conditions", "label": "B2B / agency / DMC conditions", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "licensing", "label": "Transport licence (e.g. VTC) if stated", "key_field": false, "never_infer": true, "required_source_types": [] }
+      ]
+    },
+    {
+      "key": "B_GUIDES",
+      "label": "Official guides – Gran Canaria",
+      "description": "Official / accredited tourist guides working in Gran Canaria, with excellent English and knowledge of gastronomy, culture, heritage, territory, ethnography and nature (hiking where applicable); experience with private clients, small groups, MICE or premium tourism is valuable.",
+      "target_count": 5,
+      "criteria": [
+        "Official tourism guide or relevant accreditation",
+        "Excellent English",
+        "Gran Canaria knowledge",
+        "Gastronomy",
+        "Local culture / heritage",
+        "Territory / ethnography",
+        "Nature",
+        "Hiking where applicable",
+        "Experience with private clients, small groups, MICE or premium tourism"
+      ],
+      "fields": [
+        { "key": "official_accreditation", "label": "Official guide accreditation", "key_field": true, "never_infer": true, "required_source_types": ["OFFICIAL_REGISTRY"] },
+        { "key": "languages", "label": "Languages (English level)", "key_field": true, "never_infer": true, "required_source_types": [] },
+        { "key": "operating_area", "label": "Location / operating area", "key_field": false, "never_infer": false, "required_source_types": [] },
+        { "key": "specialisms", "label": "Gastronomy / culture / heritage / territory / ethnography / nature", "key_field": true, "never_infer": true, "required_source_types": [] },
+        { "key": "hiking", "label": "Hiking / walking guiding", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "premium_experience", "label": "Private / small-group / MICE / premium experience", "key_field": false, "never_infer": true, "required_source_types": [] },
+        { "key": "b2b_conditions", "label": "B2B / agency conditions", "key_field": false, "never_infer": true, "required_source_types": [] }
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not invent B2B conditions, prices, fleet information, languages, accreditations or capabilities: unsupported information is UNVERIFIED.",
+    "Statuses are CANDIDATE or SHORTLIST only; no supplier is approved by ATLAS.",
+    "Individual guides are natural persons: use only professional, publicly listed information.",
+    "Quality over quantity: a reasoned shortlist, not a directory dump."
+  ],
+  "context": [
+    "Immediate use case: a THE FIX small-group premium experience in development — Queso de Guía territory experience, Monte Pavón walking component, La Colonial. Do not bias the whole search toward this one product."
+  ]
+}
