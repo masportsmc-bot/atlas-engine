@@ -31,7 +31,8 @@ const urlKey = (u) => { try { const x = new URL(u); return (x.hostname.replace(/
 
 /**
  * Wraps an injected engine fetch: only public http(s) URLs on the allowed registrable domains may be requested, and the
- * final URL after redirects must still be on an allowed domain (a redirect off-domain is refused, its content discarded).
+ * final URL after redirects must still be on an allowed domain. With the INTEGRATION 007 engine every redirect hop is
+ * checked BEFORE it is followed (an off-domain redirect target is never contacted); the final check is kept as well.
  */
 export function domainGuardedFetch(engineFetch, allowedDomains, rejections = []) {
   const allowed = new Set(allowedDomains);
@@ -40,7 +41,15 @@ export function domainGuardedFetch(engineFetch, allowedDomains, rejections = [])
     const d = registrableDomain(url);
     if (unsafe) { rejections.push({ url, domain: d, reason: unsafe }); throw new Error(`DOMAIN_NOT_ALLOWED unsafe URL (${unsafe})`); }
     if (!d || !allowed.has(d)) { rejections.push({ url, domain: d }); throw new Error(`DOMAIN_NOT_ALLOWED ${d ?? 'invalid'}`); }
-    const r = await engineFetch(url);
+    // INTEGRATION 007: the same scope check runs on EVERY redirect hop inside the engine, before it connects to the
+    // target; the final-URL check below stays as a second line of defence (and covers engines without per-hop hooks).
+    const allowUrl = (u, hop) => {
+      const why = urlSafetyError(u); const hd = registrableDomain(u);
+      if (!why && hd && allowed.has(hd)) return null;
+      if (hop > 0) rejections.push({ url, final_url: u, domain: hd, reason: why ?? 'REDIRECT_OUT_OF_SCOPE' });
+      return `DOMAIN_NOT_ALLOWED after redirect (${hd ?? 'invalid'}${why ? `, ${why}` : ''})`;
+    };
+    const r = await engineFetch(url, { allowUrl });
     const finalUrl = r?.finalUrl || url;
     const fd = registrableDomain(finalUrl);
     const finalUnsafe = urlSafetyError(finalUrl);
